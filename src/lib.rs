@@ -400,7 +400,7 @@ impl SequenceRecord {
                     let block_end = (block.start + block.length) as usize;
                     if block_end <= start {
                         continue;
-                    } else if end < block.start as usize {
+                    } else if end <= block.start as usize {
                         break; // should be the last block assuming ordering is upheld
                     }
                     let mut range = block
