@@ -441,43 +441,69 @@ impl SequenceRecord {
         start: usize,
         end: usize,
     ) -> Result<String> {
-        let mut skip = start % 4;
+        const NUC: &[u8; 4] = b"TCAG";
+
+        let first_byte = start / 4;
         reader.seek(SeekFrom::Start(u64::from(self.dna_offset)))?; // beginning of the DNA sequence
-        reader.seek(SeekFrom::Current(start as i64 / 4))?; // position where we want to start reading
+        reader.seek(SeekFrom::Current(first_byte as _))?; // position where we want to start reading
+        if start >= end {
+            return Ok(String::new()); // trivial case, empty return result
+        }
 
         let length = end - start;
+        let mut out = Vec::with_capacity(length);
+        unsafe {
+            out.set_len(length);
+        }
 
-        let mut result = Vec::with_capacity(length);
+        let last_byte = (end - 1) / 4; // inclusive (!) index, and here we know that end >= 1
+        let skip_start = start % 4; // number of pairs to skip in the first byte
+        let partial_start = skip_start != 0;
 
-        while result.len() < length {
-            let mut byte = reader.byte()?;
-            for _ in 0..4 {
-                if skip != 0 {
-                    skip -= 1;
+        let parse_byte =
+            |buf: &mut [u8], r: &mut ValueReader<_>, skip, take, shift| -> Result<()> {
+                let mut byte = r.byte()? << shift;
+                for v in buf.iter_mut().skip(skip).take(take) {
+                    *v = NUC[((byte & 192) >> 6) as usize];
                     byte <<= 2;
-                    continue;
                 }
-                let nuc = match byte & 192 {
-                    0 => b'T',
-                    64 => b'C',
-                    128 => b'A',
-                    192 => b'G',
-                    _ => return Err(Error::BadNucleotide(char::from(byte & 192))),
-                };
-                byte <<= 2;
-                result.push(nuc);
-                if result.len() == length {
-                    break;
+                Ok(())
+            };
+
+        if first_byte == last_byte {
+            parse_byte(&mut out, reader, 0, length, skip_start * 2)?; // special case (single byte)
+        } else {
+            // most common case where the sequence is spread over 2 or more bytes
+            let include_end = ((end - 1) % 4) + 1; // number of pairs to include in the last byte
+            let partial_end = include_end != 4;
+
+            if partial_start {
+                parse_byte(&mut out, reader, 0, 4 - skip_start, skip_start * 2)?;
+            }
+            let n_mid = (last_byte - first_byte + 1)
+                - usize::from(partial_start)
+                - usize::from(partial_end);
+            let mut pos = (4 - skip_start) % 4;
+            for _ in 0..n_mid {
+                let byte = reader.byte()? as usize;
+                unsafe {
+                    *out.get_unchecked_mut(pos) = NUC[(byte & 192) >> 6];
+                    *out.get_unchecked_mut(pos + 1) = NUC[(byte & 48) >> 4];
+                    *out.get_unchecked_mut(pos + 2) = NUC[(byte & 12) >> 2];
+                    *out.get_unchecked_mut(pos + 3) = NUC[byte & 3];
                 }
+                pos += 4;
+            }
+            if partial_end {
+                parse_byte(&mut out, reader, pos, include_end, 0)?;
             }
         }
 
         let seq_block = Block::new(start as Field, length as Field);
-        replace_blocks::<true>(&mut result, seq_block, &self.n_blocks);
-        replace_blocks::<false>(&mut result, seq_block, &self.soft_mask_blocks);
+        replace_blocks::<true>(&mut out, seq_block, &self.n_blocks);
+        replace_blocks::<false>(&mut out, seq_block, &self.soft_mask_blocks);
 
-        // Safety: we know that it's ascii, so it's ok to use unchecked conversion
-        Ok(unsafe { String::from_utf8_unchecked(result) })
+        Ok(unsafe { String::from_utf8_unchecked(out) }) // we know it's ascii so it's ok
     }
 }
 
