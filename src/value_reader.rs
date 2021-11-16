@@ -1,7 +1,7 @@
 //! Extraction of data from 2bit files
 
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 use std::mem::size_of;
 use std::path::Path;
 
@@ -24,6 +24,23 @@ pub struct ValueReader<R: Read + Seek> {
 impl ValueReader<BufReader<File>> {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         Self::new(BufReader::new(File::open(path)?))
+    }
+}
+
+impl<T> ValueReader<Cursor<T>>
+where
+    Cursor<T>: Read + Seek,
+{
+    pub fn from_buf(buf: T) -> Result<Self, Error> {
+        Self::new(Cursor::new(buf))
+    }
+}
+
+impl ValueReader<Cursor<Vec<u8>>> {
+    pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        let mut buf = vec![];
+        File::open(path)?.read_to_end(&mut buf)?;
+        Self::from_buf(buf)
     }
 }
 

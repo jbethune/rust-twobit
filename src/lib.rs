@@ -27,7 +27,7 @@ mod value_reader;
 use std::collections::HashMap;
 use std::default::Default;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::block::Block;
@@ -122,6 +122,23 @@ impl TwoBitFile<BufReader<File>> {
     /// * `softmask_enabled` - return lower case nucleotides for soft blocks
     pub fn open<P: AsRef<Path>>(path: P, softmask_enabled: bool) -> Result<Self, Error> {
         Self::from_value_reader(ValueReader::open(path)?, softmask_enabled)
+    }
+}
+
+impl<T> TwoBitFile<Cursor<T>>
+where
+    Cursor<T>: Read + Seek,
+{
+    /// Open a 2bit file from a given in-memory buffer.
+    pub fn from_buf(buf: T, softmask_enabled: bool) -> Result<Self, Error> {
+        Self::from_value_reader(ValueReader::from_buf(buf)?, softmask_enabled)
+    }
+}
+
+impl TwoBitFile<Cursor<Vec<u8>>> {
+    /// Open a 2bit file from a given file path and read all of it into memory.
+    pub fn open_and_read<P: AsRef<Path>>(path: P, softmask_enabled: bool) -> Result<Self, Error> {
+        Self::from_value_reader(ValueReader::open_and_read(path)?, softmask_enabled)
     }
 }
 
