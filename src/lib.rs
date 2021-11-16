@@ -496,131 +496,165 @@ enum BlockReplacementMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     const TESTFILE: &str = "assets/foo.2bit";
+
+    fn run_test(
+        softmask_enabled: bool,
+        func: impl Fn(TwoBitFile<Box<dyn Reader>>) -> Result<(), Error>,
+    ) {
+        let mut files = vec![
+            TwoBitFile::open(TESTFILE, softmask_enabled)
+                .unwrap()
+                .boxed(),
+            TwoBitFile::open_and_read(TESTFILE, softmask_enabled)
+                .unwrap()
+                .boxed(),
+        ];
+        for tb in files.drain(..) {
+            func(tb).unwrap();
+        }
+    }
 
     #[test]
     fn test_chroms() {
-        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
-        let mut chr_count = 0;
-        for (chr, len) in bit.chroms() {
-            match chr.as_ref() {
-                "chr1" => assert_eq!(len, 150),
-                "chr2" => assert_eq!(len, 100),
-                _ => assert!(false), // unexpected chromosome
+        run_test(true, |mut bit| {
+            let mut chr_count = 0;
+            for (chr, len) in bit.chroms() {
+                match chr.as_ref() {
+                    "chr1" => assert_eq!(len, 150),
+                    "chr2" => assert_eq!(len, 100),
+                    _ => assert!(false), // unexpected chromosome
+                }
+                chr_count += 1;
             }
-            chr_count += 1;
-        }
-        assert_eq!(chr_count, 2)
+            assert_eq!(chr_count, 2);
+            Ok(())
+        });
     }
 
     #[test]
     fn test_full_sequence() {
-        let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATCGATCGTAGCTAGCTAGCTAGCTGATCNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".to_string();
-        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
-        assert_eq!(seq, bit.full_sequence("chr1").unwrap());
+        run_test(true, |mut bit| {
+            let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATCGATCGTAGCTAGCTAGCTAGCTGATCNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".to_string();
+            assert_eq!(seq, bit.full_sequence("chr1")?);
+            Ok(())
+        });
     }
 
     #[test]
     fn test_sequence() {
-        let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC";
-        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
-        assert_eq!(seq, bit.sequence("chr1", 24, 74).unwrap());
-        // let's try different offsets to test positions not divisible by 4
-        let seq = "ACGTACGTagctagctGATC";
-        assert_eq!(seq, bit.sequence("chr1", 54, 74).unwrap());
-        let seq = "CGTACGTagctagctGATC";
-        assert_eq!(seq, bit.sequence("chr1", 55, 74).unwrap());
-        let seq = "GTACGTagctagctGATC";
-        assert_eq!(seq, bit.sequence("chr1", 56, 74).unwrap()); // divisible by 4
-        let seq = "TACGTagctagctGATC";
-        assert_eq!(seq, bit.sequence("chr1", 57, 74).unwrap());
+        run_test(true, |mut bit| {
+            let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC";
+            assert_eq!(seq, bit.sequence("chr1", 24, 74)?);
+            // let's try different offsets to test positions not divisible by 4
+            let seq = "ACGTACGTagctagctGATC";
+            assert_eq!(seq, bit.sequence("chr1", 54, 74)?);
+            let seq = "CGTACGTagctagctGATC";
+            assert_eq!(seq, bit.sequence("chr1", 55, 74)?);
+            let seq = "GTACGTagctagctGATC";
+            assert_eq!(seq, bit.sequence("chr1", 56, 74)?); // divisible by 4
+            let seq = "TACGTagctagctGATC";
+            assert_eq!(seq, bit.sequence("chr1", 57, 74)?);
+            Ok(())
+        });
     }
 
     #[test]
     fn test_full_bases() {
-        let percentages = BasePercentages {
-            a: 0.08,
-            c: 0.08,
-            t: 0.08666666666666667,
-            g: 0.08666666666666667,
-            n: 100.0 / 150.0,
-        };
-        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
-        assert_eq!(percentages, bit.full_bases_percentages("chr1").unwrap());
+        run_test(true, |mut bit| {
+            let percentages = BasePercentages {
+                a: 0.08,
+                c: 0.08,
+                t: 0.08666666666666667,
+                g: 0.08666666666666667,
+                n: 100.0 / 150.0,
+            };
+            assert_eq!(percentages, bit.full_bases_percentages("chr1")?);
+            Ok(())
+        });
     }
 
     #[test]
     fn test_bases() {
-        let counts = BaseCounts {
-            a: 6,
-            c: 6,
-            t: 6,
-            g: 6,
-            n: 26,
-        };
-        let percentages = BasePercentages {
-            a: 0.12,
-            c: 0.12,
-            t: 0.12,
-            g: 0.12,
-            n: 26.0 / 50.0,
-        };
-        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
-        assert_eq!(counts, bit.bases("chr1", 24, 74).unwrap());
-        assert_eq!(percentages, bit.bases_percentages("chr1", 24, 74).unwrap());
+        run_test(true, |mut bit| {
+            let counts = BaseCounts {
+                a: 6,
+                c: 6,
+                t: 6,
+                g: 6,
+                n: 26,
+            };
+            let percentages = BasePercentages {
+                a: 0.12,
+                c: 0.12,
+                t: 0.12,
+                g: 0.12,
+                n: 26.0 / 50.0,
+            };
+            assert_eq!(counts, bit.bases("chr1", 24, 74)?);
+            assert_eq!(percentages, bit.bases_percentages("chr1", 24, 74)?);
+            Ok(())
+        });
     }
 
     #[test]
     fn test_info() {
-        let info = TwoBitFileInfo {
-            file_size: 161,
-            chromosomes: 2,
-            total_sequence_length: 250,
-            hard_masks_count: 150,
-            soft_masks_count: 8,
-        };
-        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
-        assert_eq!(bit.info().unwrap(), info);
+        run_test(true, |mut bit| {
+            let info = TwoBitFileInfo {
+                file_size: 161,
+                chromosomes: 2,
+                total_sequence_length: 250,
+                hard_masks_count: 150,
+                soft_masks_count: 8,
+            };
+            assert_eq!(bit.info()?, info);
+            Ok(())
+        });
     }
 
     #[test]
     fn test_hard_masked_blocks() {
-        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
-        let mut i = 0;
-        for block_ in bit.full_hard_masked_blocks("chr1").unwrap() {
-            match i {
-                0 => {
-                    assert_eq!(block_.start, 0);
-                    assert_eq!(block_.length, 50);
+        run_test(true, |mut bit| {
+            let mut i = 0;
+            for block in bit.full_hard_masked_blocks("chr1")? {
+                match i {
+                    0 => {
+                        assert_eq!(block.start, 0);
+                        assert_eq!(block.length, 50);
+                    }
+                    1 => {
+                        assert_eq!(block.start, 100);
+                        assert_eq!(block.length, 50);
+                    }
+                    _ => assert!(false),
                 }
-                1 => {
-                    assert_eq!(block_.start, 100);
-                    assert_eq!(block_.length, 50);
-                }
-                _ => assert!(false),
+                i += 1
             }
-            i += 1
-        }
-        assert_eq!(2, i);
-        //TODO hard_masked_blocks()
+            assert_eq!(2, i);
+            //TODO hard_masked_blocks()
+            Ok(())
+        });
     }
 
     #[test]
     fn test_soft_masked_blocks() {
-        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
-        let mut i = 0;
-        for block_ in bit.full_soft_masked_blocks("chr1").unwrap() {
-            match i {
-                0 => {
-                    assert_eq!(block_.start, 62);
-                    assert_eq!(block_.length, 8);
+        run_test(true, |mut bit| {
+            let mut i = 0;
+            for block in bit.full_soft_masked_blocks("chr1")? {
+                match i {
+                    0 => {
+                        assert_eq!(block.start, 62);
+                        assert_eq!(block.length, 8);
+                    }
+                    _ => assert!(false),
                 }
-                _ => assert!(false),
+                i += 1
             }
-            i += 1
-        }
-        assert_eq!(1, i);
-        //TODO soft_masked_blocks()
+            assert_eq!(1, i);
+            //TODO soft_masked_blocks()
+            Ok(())
+        });
     }
 
     //TODO IO Errors
