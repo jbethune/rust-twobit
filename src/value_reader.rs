@@ -6,7 +6,7 @@ use std::mem::size_of;
 use std::path::Path;
 
 use crate::block::Block;
-use crate::error::Error;
+use crate::error::{Error, Result};
 use crate::types::{Field, FileIndex};
 use crate::{REV_SIGNATURE, SIGNATURE};
 
@@ -28,7 +28,7 @@ pub struct ValueReader<R: Reader> {
 pub type BoxValueReader = ValueReader<Box<dyn Reader>>;
 
 impl ValueReader<BufReader<File>> {
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::new(BufReader::new(File::open(path)?))
     }
 }
@@ -37,13 +37,13 @@ impl<T> ValueReader<Cursor<T>>
 where
     Cursor<T>: Read + Seek,
 {
-    pub fn from_buf(buf: T) -> Result<Self, Error> {
+    pub fn from_buf(buf: T) -> Result<Self> {
         Self::new(Cursor::new(buf))
     }
 }
 
 impl ValueReader<Cursor<Vec<u8>>> {
-    pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut buf = vec![];
         File::open(path)?.read_to_end(&mut buf)?;
         Self::from_buf(buf)
@@ -51,7 +51,7 @@ impl ValueReader<Cursor<Vec<u8>>> {
 }
 
 impl<R: Reader> ValueReader<R> {
-    pub fn new(reader: R) -> Result<Self, Error> {
+    pub fn new(reader: R) -> Result<Self> {
         let mut result = Self {
             reader,
             twobit_version: 0,
@@ -90,26 +90,26 @@ impl<R: Reader> ValueReader<R> {
         }
     }
 
-    pub fn seek(&mut self, pos: SeekFrom) -> Result<FileIndex, Error> {
+    pub fn seek(&mut self, pos: SeekFrom) -> Result<FileIndex> {
         match self.reader.seek(pos) {
             Ok(v) => Ok(v as FileIndex),
             Err(e) => Err(e.into()),
         }
     }
 
-    pub fn seek_start(&mut self) -> Result<(), Error> {
+    pub fn seek_start(&mut self) -> Result<()> {
         self.seek(SeekFrom::Start(2 * size_of::<Field>() as u64))?;
         Ok(())
     }
 
-    pub fn tell(&mut self) -> Result<FileIndex, Error> {
+    pub fn tell(&mut self) -> Result<FileIndex> {
         match self.reader.seek(SeekFrom::Current(0)) {
             Ok(v) => Ok(v as FileIndex),
             Err(e) => Err(e.into()),
         }
     }
 
-    pub fn stream_len(&mut self) -> Result<u64, Error> {
+    pub fn stream_len(&mut self) -> Result<u64> {
         // borrowed from unstable Seek method in stdlib
         let old_pos = self.reader.stream_position()?;
         let len = self.reader.seek(SeekFrom::End(0))?;
@@ -121,25 +121,25 @@ impl<R: Reader> ValueReader<R> {
         Ok(len)
     }
 
-    pub fn byte(&mut self) -> Result<u8, Error> {
+    pub fn byte(&mut self) -> Result<u8> {
         let mut byte_slice: [u8; 1] = [0; 1];
         self.fill_completely(&mut byte_slice)?;
         Ok(byte_slice[0])
     }
 
-    pub fn field(&mut self) -> Result<Field, Error> {
+    pub fn field(&mut self) -> Result<Field> {
         let mut field: [u8; FIELD_SIZE] = [0; FIELD_SIZE];
         self.fill_completely(&mut field)?;
         Ok(slice_to_field(field, self.swap_endian))
     }
 
-    pub fn string(&mut self, length: usize) -> Result<String, Error> {
+    pub fn string(&mut self, length: usize) -> Result<String> {
         let mut buf = vec![0_u8; length];
         self.fill_completely(&mut buf)?;
         Ok(String::from_utf8(buf)?)
     }
 
-    pub fn blocks(&mut self) -> Result<Vec<Block>, Error> {
+    pub fn blocks(&mut self) -> Result<Vec<Block>> {
         let num_blocks = self.field()? as usize;
         let mut result = Vec::with_capacity(num_blocks);
         for _ in 0..num_blocks {
@@ -155,7 +155,7 @@ impl<R: Reader> ValueReader<R> {
         Ok(result)
     }
 
-    pub fn skip_blocks(&mut self) -> Result<(), Error> {
+    pub fn skip_blocks(&mut self) -> Result<()> {
         let num_blocks = self.field()? as usize;
         let skip = num_blocks * 2 * size_of::<Field>();
         self.reader.seek(SeekFrom::Current(skip as i64))?;
@@ -163,7 +163,7 @@ impl<R: Reader> ValueReader<R> {
     }
 
     /// Read bytes from the reader until the buffer is completely full
-    fn fill_completely(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+    fn fill_completely(&mut self, buf: &mut [u8]) -> Result<()> {
         let n_bytes = buf.len();
         let mut bytes_read = 0;
         while bytes_read < n_bytes {

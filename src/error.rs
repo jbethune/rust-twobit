@@ -43,3 +43,5 @@ impl From<FromUtf8Error> for Error {
         Self::FileFormat(format!("{}", utf_error))
     }
 }
+
+pub type Result<T> = std::result::Result<T, Error>;

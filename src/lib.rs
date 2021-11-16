@@ -32,7 +32,7 @@ use std::path::Path;
 
 use crate::block::Block;
 use crate::counts::{BaseCounts, BasePercentages};
-use crate::error::Error;
+use crate::error::{Error, Result};
 use crate::types::{Field, FileIndex};
 use crate::value_reader::{Reader, ValueReader};
 
@@ -112,7 +112,7 @@ pub struct TwoBitFileInfo {
 
 impl TwoBitFile<BufReader<File>> {
     /// Open a 2bit file from a given file path.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_value_reader(ValueReader::open(path)?)
     }
 }
@@ -122,21 +122,21 @@ where
     Cursor<T>: Reader,
 {
     /// Open a 2bit file from a given in-memory buffer.
-    pub fn from_buf(buf: T) -> Result<Self, Error> {
+    pub fn from_buf(buf: T) -> Result<Self> {
         Self::from_value_reader(ValueReader::from_buf(buf)?)
     }
 }
 
 impl TwoBitFile<Cursor<Vec<u8>>> {
     /// Open a 2bit file from a given file path and read all of it into memory.
-    pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_value_reader(ValueReader::open_and_read(path)?)
     }
 }
 
 impl<R: Reader> TwoBitFile<R> {
     /// Open a 2bit file from a given generic reader.
-    pub fn new(reader: R) -> Result<Self, Error> {
+    pub fn new(reader: R) -> Result<Self> {
         Self::from_value_reader(ValueReader::new(reader)?)
     }
 
@@ -161,7 +161,7 @@ impl<R: Reader> TwoBitFile<R> {
         }
     }
 
-    fn from_value_reader(mut reader: ValueReader<R>) -> Result<Self, Error> {
+    fn from_value_reader(mut reader: ValueReader<R>) -> Result<Self> {
         reader.seek_start()?; // rewind to the start of the file, skipping the header
 
         let mut sequences = HashMap::new();
@@ -198,7 +198,7 @@ impl<R: Reader> TwoBitFile<R> {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     /// * returns the full sequence as a `String` on success
-    pub fn full_sequence(&mut self, chr: &str) -> Result<String, Error> {
+    pub fn full_sequence(&mut self, chr: &str) -> Result<String> {
         if self.sequences.contains_key(chr) {
             let record = self.sequence_record(chr)?;
             record.sequence(&mut self.reader, 0, record.dna_size as usize)
@@ -213,7 +213,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// * `start` Start position of the sequence
     /// * `end` Stop position of the sequence
     /// * returns the full sequence as a `String` on success
-    pub fn sequence(&mut self, chr: &str, start: usize, end: usize) -> Result<String, Error> {
+    pub fn sequence(&mut self, chr: &str, start: usize, end: usize) -> Result<String> {
         if self.sequences.contains_key(chr) {
             let record = self.sequence_record(chr)?;
             record.sequence(&mut self.reader, start, end)
@@ -225,7 +225,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// Count bases of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn full_bases(&mut self, chr: &str) -> Result<BaseCounts, Error> {
+    pub fn full_bases(&mut self, chr: &str) -> Result<BaseCounts> {
         let len = self.chr_length(chr)?;
         self.bases(chr, 0, len)
     }
@@ -233,7 +233,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// Calculates percentages of bases of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn full_bases_percentages(&mut self, chr: &str) -> Result<BasePercentages, Error> {
+    pub fn full_bases_percentages(&mut self, chr: &str) -> Result<BasePercentages> {
         let len = self.chr_length(chr)?;
         self.bases_percentages(chr, 0, len)
     }
@@ -241,7 +241,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// Count bases of a partial chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn bases(&mut self, chr: &str, start: usize, end: usize) -> Result<BaseCounts, Error> {
+    pub fn bases(&mut self, chr: &str, start: usize, end: usize) -> Result<BaseCounts> {
         let nucs = self
             .sequence_record(chr)?
             .sequence(&mut self.reader, start, end)?;
@@ -267,12 +267,12 @@ impl<R: Reader> TwoBitFile<R> {
         chr: &str,
         start: usize,
         end: usize,
-    ) -> Result<BasePercentages, Error> {
+    ) -> Result<BasePercentages> {
         Ok(self.bases(chr, start, end)?.into())
     }
 
     /// Obtain general information on the 2bit file you are dealing with
-    pub fn info(&mut self) -> Result<TwoBitFileInfo, Error> {
+    pub fn info(&mut self) -> Result<TwoBitFileInfo> {
         let mut total_length = 0;
         let mut hard_masks_count = 0;
         let mut soft_masks_count = 0;
@@ -298,7 +298,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// Get all hard blocks (N-blocks) of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn full_hard_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>, Error> {
+    pub fn full_hard_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>> {
         match self.sequence_record(chr) {
             Ok(record) => Ok(record.n_blocks),
             Err(e) => Err(e),
@@ -313,7 +313,7 @@ impl<R: Reader> TwoBitFile<R> {
         chr: &str,
         start: usize,
         end: usize,
-    ) -> Result<Vec<Block>, Error> {
+    ) -> Result<Vec<Block>> {
         match self.sequence_record(chr) {
             Ok(record) => {
                 let mut result = Vec::new();
@@ -336,7 +336,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// Get all soft blocks (lower case blocks) of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn full_soft_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>, Error> {
+    pub fn full_soft_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>> {
         match self.sequence_record(chr) {
             Ok(record) => Ok(record.soft_mask_blocks),
             Err(e) => Err(e),
@@ -351,7 +351,7 @@ impl<R: Reader> TwoBitFile<R> {
         chr: &str,
         start: usize,
         end: usize,
-    ) -> Result<Vec<Block>, Error> {
+    ) -> Result<Vec<Block>> {
         match self.sequence_record(chr) {
             Ok(record) => {
                 let mut result = Vec::new();
@@ -371,7 +371,7 @@ impl<R: Reader> TwoBitFile<R> {
         }
     }
 
-    fn sequence_record(&mut self, chr: &str) -> Result<SequenceRecord, Error> {
+    fn sequence_record(&mut self, chr: &str) -> Result<SequenceRecord> {
         let offset = self
             .sequences
             .get(chr)
@@ -398,7 +398,7 @@ impl<R: Reader> TwoBitFile<R> {
         })
     }
 
-    fn chr_length(&mut self, chr: &str) -> Result<usize, Error> {
+    fn chr_length(&mut self, chr: &str) -> Result<usize> {
         match self.chroms().get(chr) {
             Some(v) => Ok(*v as usize),
             None => Err(Error::MissingName(chr.to_string())),
@@ -412,7 +412,7 @@ impl SequenceRecord {
         reader: &mut ValueReader<R>,
         start: usize,
         end: usize,
-    ) -> Result<String, Error> {
+    ) -> Result<String> {
         let mut skip = start % 4;
         reader
             .seek(SeekFrom::Start(u64::from(self.dna_offset)))
@@ -492,10 +492,7 @@ mod tests {
 
     const TESTFILE: &str = "assets/foo.2bit";
 
-    fn run_test(
-        softmask_enabled: bool,
-        func: impl Fn(TwoBitFile<Box<dyn Reader>>) -> Result<(), Error>,
-    ) {
+    fn run_test(softmask_enabled: bool, func: impl Fn(TwoBitFile<Box<dyn Reader>>) -> Result<()>) {
         let mut files = vec![
             TwoBitFile::open(TESTFILE).unwrap().boxed(),
             TwoBitFile::open_and_read(TESTFILE).unwrap().boxed(),
