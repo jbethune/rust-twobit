@@ -114,7 +114,7 @@ impl TwoBitFile {
     /// * `path` - A path to the 2bit file
     /// * `softmask_enabled` - return lower case nucleotides for soft blocks
     pub fn open<P: AsRef<Path>>(path: P, softmask_enabled: bool) -> Result<TwoBitFile, Error> {
-        let mut reader = ValueReader::new(&path)?;
+        let mut reader = ValueReader::from_path(&path)?;
 
         let mut sequences = HashMap::new();
 
@@ -321,7 +321,7 @@ impl TwoBitFile {
     }
 
     fn sequence_record(&self, chr: &str) -> Result<SequenceRecord, Error> {
-        let mut reader = ValueReader::new(&self.path)?;
+        let mut reader = ValueReader::from_path(&self.path)?;
         let offset = self
             .sequences
             .get(chr)
@@ -358,7 +358,7 @@ impl TwoBitFile {
 
 impl SequenceRecord {
     fn sequence<P: AsRef<Path>>(&self, path: P, start: usize, end: usize) -> Result<String, Error> {
-        let mut reader = ValueReader::new(path)?;
+        let mut reader = ValueReader::from_path(path)?;
         let mut skip = start % 4;
         reader
             .seek(SeekFrom::Start(self.dna_offset as u64))

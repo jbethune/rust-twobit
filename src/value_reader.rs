@@ -13,16 +13,20 @@ use crate::{REV_SIGNATURE, SIGNATURE};
 /// Extract binary data from 2bit files
 ///
 /// This reads all types of fields except the sequences.
-pub struct ValueReader {
-    reader: BufReader<File>,
+pub struct ValueReader<R: Read + Seek> {
+    reader: R,
     twobit_version: Field,
     swap_endian: bool,
 }
 
-impl ValueReader {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<ValueReader, Error> {
-        let fd = File::open(path)?;
-        let reader = BufReader::new(fd);
+impl ValueReader<BufReader<File>> {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        Self::new(BufReader::new(File::open(path)?))
+    }
+}
+
+impl<R: Read + Seek> ValueReader<R> {
+    pub fn new(reader: R) -> Result<Self, Error> {
         let mut result = ValueReader {
             reader,
             twobit_version: 0,
