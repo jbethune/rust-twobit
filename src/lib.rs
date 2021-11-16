@@ -27,14 +27,14 @@ mod value_reader;
 use std::collections::HashMap;
 use std::default::Default;
 use std::fs::File;
-use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
+use std::io::{BufReader, Cursor, SeekFrom};
 use std::path::Path;
 
 use crate::block::Block;
 use crate::counts::{BaseCounts, BasePercentages};
 use crate::error::Error;
 use crate::types::{Field, FileIndex};
-use crate::value_reader::ValueReader;
+use crate::value_reader::{Reader, ValueReader};
 
 /// 2bit signature magic number
 const SIGNATURE: Field = 0x1A41_2743;
@@ -87,7 +87,7 @@ const REV_SIGNATURE: Field = 0x4327_411A;
 /// The partial requests require you to provide a start (0-based, inclusive) and a stop (0-based,
 /// exclusive) position as parameters. The full request methods all start with the prefix
 /// `full_`.
-pub struct TwoBitFile<R: Read + Seek> {
+pub struct TwoBitFile<R: Reader> {
     reader: ValueReader<R>,
     softmask_enabled: bool,
     sequences: HashMap<String, FileIndex>,
@@ -127,7 +127,7 @@ impl TwoBitFile<BufReader<File>> {
 
 impl<T> TwoBitFile<Cursor<T>>
 where
-    Cursor<T>: Read + Seek,
+    Cursor<T>: Reader,
 {
     /// Open a 2bit file from a given in-memory buffer.
     pub fn from_buf(buf: T, softmask_enabled: bool) -> Result<Self, Error> {
@@ -142,7 +142,7 @@ impl TwoBitFile<Cursor<Vec<u8>>> {
     }
 }
 
-impl<R: Read + Seek> TwoBitFile<R> {
+impl<R: Reader> TwoBitFile<R> {
     /// Open a 2bit file from a given reader.
     ///
     /// * `reader` - arbitrary seek-enabled reader
@@ -400,7 +400,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
 }
 
 impl SequenceRecord {
-    fn sequence<R: Read + Seek>(
+    fn sequence<R: Reader>(
         &self,
         reader: &mut ValueReader<R>,
         start: usize,

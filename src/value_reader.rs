@@ -12,10 +12,14 @@ use crate::{REV_SIGNATURE, SIGNATURE};
 
 const FIELD_SIZE: usize = size_of::<Field>();
 
+pub trait Reader: Read + Seek {}
+
+impl<T: Read + Seek> Reader for T {}
+
 /// Extract binary data from 2bit files
 ///
 /// This reads all types of fields except the sequences.
-pub struct ValueReader<R: Read + Seek> {
+pub struct ValueReader<R: Reader> {
     reader: R,
     twobit_version: Field,
     swap_endian: bool,
@@ -44,7 +48,7 @@ impl ValueReader<Cursor<Vec<u8>>> {
     }
 }
 
-impl<R: Read + Seek> ValueReader<R> {
+impl<R: Reader> ValueReader<R> {
     pub fn new(reader: R) -> Result<Self, Error> {
         let mut result = Self {
             reader,
