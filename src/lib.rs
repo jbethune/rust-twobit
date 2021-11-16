@@ -19,9 +19,9 @@ mod value_reader;
 
 use std::collections::HashMap;
 use std::default::Default;
-use std::fs::metadata;
-use std::io::SeekFrom;
-use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::path::Path;
 
 use crate::block::Block;
 use crate::counts::{BaseCounts, BasePercentages};
@@ -44,7 +44,7 @@ const REV_SIGNATURE: Field = 0x4327411A;
 /// use twobit::TwoBitFile;
 ///
 /// let enable_softmask=true; //set to false to enforce upper case sequences
-/// let tb = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
+/// let mut tb = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
 /// let chromosome_lengths = tb.chroms();
 /// assert_eq!(chromosome_lengths["chr1"], 150);
 /// assert_eq!(chromosome_lengths["chr2"], 100);
@@ -57,7 +57,7 @@ const REV_SIGNATURE: Field = 0x4327411A;
 /// # extern crate twobit;
 /// # use twobit::TwoBitFile;
 /// # let enable_softmask=true; //set to false to enforce upper case sequences
-/// # let tb = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
+/// # let mut tb = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
 ///
 /// let expected_seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC"; // some lower and some upper case
 /// assert_eq!(tb.sequence("chr1",24,74).unwrap(), expected_seq);
@@ -68,7 +68,7 @@ const REV_SIGNATURE: Field = 0x4327411A;
 /// # use twobit::TwoBitFile;
 ///
 /// let enable_softmask=false;
-/// let tb_nosoft = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
+/// let mut tb_nosoft = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
 /// let expected_seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTAGCTAGCTGATC"; // all upper case
 /// assert_eq!(tb_nosoft.sequence("chr1",24,74).unwrap(), expected_seq);
 /// ```
@@ -80,8 +80,8 @@ const REV_SIGNATURE: Field = 0x4327411A;
 /// The partial requests require you to provide a start (0-based, inclusive) and a stop (0-based,
 /// exclusive) position as parameters. The full request methods all start with the prefix
 /// `full_`.
-pub struct TwoBitFile {
-    path: PathBuf,
+pub struct TwoBitFile<R: Read + Seek> {
+    reader: ValueReader<R>,
     softmask_enabled: bool,
     sequences: HashMap<String, FileIndex>,
 }
@@ -108,13 +108,30 @@ pub struct TwoBitFileInfo {
     pub soft_masks_count: usize,
 }
 
-impl TwoBitFile {
-    /// Constructor for a 2bit file.
+impl TwoBitFile<BufReader<File>> {
+    /// Open a 2bit file from a given file path.
     ///
     /// * `path` - A path to the 2bit file
     /// * `softmask_enabled` - return lower case nucleotides for soft blocks
-    pub fn open<P: AsRef<Path>>(path: P, softmask_enabled: bool) -> Result<TwoBitFile, Error> {
-        let mut reader = ValueReader::from_path(&path)?;
+    pub fn open<P: AsRef<Path>>(path: P, softmask_enabled: bool) -> Result<Self, Error> {
+        Self::from_value_reader(ValueReader::from_path(path)?, softmask_enabled)
+    }
+}
+
+impl<R: Read + Seek> TwoBitFile<R> {
+    /// Open a 2bit file from a given reader.
+    ///
+    /// * `reader` - arbitrary seek-enabled reader
+    /// * `softmask_enabled` - return lower case nucleotides for soft blocks
+    pub fn new(reader: R, softmask_enabled: bool) -> Result<Self, Error> {
+        Self::from_value_reader(ValueReader::new(reader)?, softmask_enabled)
+    }
+
+    fn from_value_reader(
+        mut reader: ValueReader<R>,
+        softmask_enabled: bool,
+    ) -> Result<Self, Error> {
+        reader.seek_start()?; // rewind to the start of the file, skipping the header
 
         let mut sequences = HashMap::new();
 
@@ -129,18 +146,17 @@ impl TwoBitFile {
             sequences.insert(name, seq_offset);
         }
 
-        let path = path.as_ref().to_path_buf();
-        Ok(TwoBitFile {
-            path,
+        Ok(Self {
+            reader,
             sequences,
             softmask_enabled,
         })
     }
 
     /// Get the sizes of chromosomes in a 2bit file as a `HashMap`
-    pub fn chroms(&self) -> HashMap<String, Field> {
+    pub fn chroms(&mut self) -> HashMap<String, Field> {
         let mut result = HashMap::new();
-        for chr in self.sequences.keys() {
+        for chr in &self.sequences.keys().cloned().collect::<Vec<_>>() {
             let seq = self.sequence_record(chr).expect("Chromosome must be valid");
             result.insert((*chr).clone(), seq.dna_size);
         }
@@ -151,10 +167,10 @@ impl TwoBitFile {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     /// * returns the full sequence as a `String` on success
-    pub fn full_sequence(&self, chr: &str) -> Result<String, Error> {
+    pub fn full_sequence(&mut self, chr: &str) -> Result<String, Error> {
         if self.sequences.contains_key(chr) {
             let record = self.sequence_record(chr)?;
-            record.sequence(&self.path, 0, record.dna_size as usize)
+            record.sequence(&mut self.reader, 0, record.dna_size as usize)
         } else {
             Err(Error::MissingName(chr.to_string()))
         }
@@ -166,10 +182,10 @@ impl TwoBitFile {
     /// * `start` Start position of the sequence
     /// * `end` Stop position of the sequence
     /// * returns the full sequence as a `String` on success
-    pub fn sequence(&self, chr: &str, start: usize, end: usize) -> Result<String, Error> {
+    pub fn sequence(&mut self, chr: &str, start: usize, end: usize) -> Result<String, Error> {
         if self.sequences.contains_key(chr) {
             let record = self.sequence_record(chr)?;
-            record.sequence(&self.path, start, end)
+            record.sequence(&mut self.reader, start, end)
         } else {
             Err(Error::MissingName(chr.to_string()))
         }
@@ -178,24 +194,26 @@ impl TwoBitFile {
     /// Count bases of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn full_bases(&self, chr: &str) -> Result<BaseCounts, Error> {
-        self.bases(chr, 0, self.chr_length(chr)?)
+    pub fn full_bases(&mut self, chr: &str) -> Result<BaseCounts, Error> {
+        let len = self.chr_length(chr)?;
+        self.bases(chr, 0, len)
     }
 
     /// Calculates percentages of bases of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn full_bases_percentages(&self, chr: &str) -> Result<BasePercentages, Error> {
-        self.bases_percentages(chr, 0, self.chr_length(chr)?)
+    pub fn full_bases_percentages(&mut self, chr: &str) -> Result<BasePercentages, Error> {
+        let len = self.chr_length(chr)?;
+        self.bases_percentages(chr, 0, len)
     }
 
     /// Count bases of a partial chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn bases(&self, chr: &str, start: usize, end: usize) -> Result<BaseCounts, Error> {
+    pub fn bases(&mut self, chr: &str, start: usize, end: usize) -> Result<BaseCounts, Error> {
         let nucs = self
             .sequence_record(chr)?
-            .sequence(self.path.clone(), start, end)?;
+            .sequence(&mut self.reader, start, end)?;
         let mut result = BaseCounts::default();
         for nuc in nucs.chars() {
             match nuc {
@@ -214,7 +232,7 @@ impl TwoBitFile {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn bases_percentages(
-        &self,
+        &mut self,
         chr: &str,
         start: usize,
         end: usize,
@@ -223,11 +241,11 @@ impl TwoBitFile {
     }
 
     /// Obtain general information on the 2bit file you are dealing with
-    pub fn info(&self) -> Result<TwoBitFileInfo, Error> {
+    pub fn info(&mut self) -> Result<TwoBitFileInfo, Error> {
         let mut total_length = 0;
         let mut hard_masks_count = 0;
         let mut soft_masks_count = 0;
-        for chr in self.sequences.keys() {
+        for chr in &self.sequences.keys().cloned().collect::<Vec<_>>() {
             total_length += self.chr_length(chr)?;
             let record = self.sequence_record(chr)?;
             hard_masks_count +=
@@ -238,7 +256,7 @@ impl TwoBitFile {
                 .fold(0, |acc, blk| acc + blk.length) as usize;
         }
         Ok(TwoBitFileInfo {
-            file_size: metadata(&self.path)?.len(),
+            file_size: self.reader.stream_len()?,
             chromosomes: self.sequences.len(),
             total_sequence_length: total_length,
             hard_masks_count,
@@ -249,7 +267,7 @@ impl TwoBitFile {
     /// Get all hard blocks (N-blocks) of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn full_hard_masked_blocks(&self, chr: &str) -> Result<Vec<Block>, Error> {
+    pub fn full_hard_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>, Error> {
         match self.sequence_record(chr) {
             Ok(record) => Ok(record.n_blocks),
             Err(e) => Err(e),
@@ -260,7 +278,7 @@ impl TwoBitFile {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn hard_masked_blocks(
-        &self,
+        &mut self,
         chr: &str,
         start: usize,
         end: usize,
@@ -286,7 +304,7 @@ impl TwoBitFile {
     /// Get all soft blocks (lower case blocks) of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
-    pub fn full_soft_masked_blocks(&self, chr: &str) -> Result<Vec<Block>, Error> {
+    pub fn full_soft_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>, Error> {
         match self.sequence_record(chr) {
             Ok(record) => Ok(record.soft_mask_blocks),
             Err(e) => Err(e),
@@ -297,7 +315,7 @@ impl TwoBitFile {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn soft_masked_blocks(
-        &self,
+        &mut self,
         chr: &str,
         start: usize,
         end: usize,
@@ -320,25 +338,24 @@ impl TwoBitFile {
         }
     }
 
-    fn sequence_record(&self, chr: &str) -> Result<SequenceRecord, Error> {
-        let mut reader = ValueReader::from_path(&self.path)?;
+    fn sequence_record(&mut self, chr: &str) -> Result<SequenceRecord, Error> {
         let offset = self
             .sequences
             .get(chr)
             .ok_or_else(|| Error::MissingName(chr.to_string()))?;
-        reader.seek(SeekFrom::Start(*offset as u64))?;
-        let dna_size = reader.field()?;
-        let n_blocks = reader.blocks()?;
+        self.reader.seek(SeekFrom::Start(*offset as u64))?;
+        let dna_size = self.reader.field()?;
+        let n_blocks = self.reader.blocks()?;
         let soft_mask_blocks = {
             if self.softmask_enabled {
-                reader.blocks()?
+                self.reader.blocks()?
             } else {
-                reader.skip_blocks()?;
+                self.reader.skip_blocks()?;
                 Vec::new()
             }
         };
-        let _reserved = reader.field()?;
-        let dna_offset = reader.tell()?;
+        let _reserved = self.reader.field()?;
+        let dna_offset = self.reader.tell()?;
 
         Ok(SequenceRecord {
             dna_offset,
@@ -348,7 +365,7 @@ impl TwoBitFile {
         })
     }
 
-    fn chr_length(&self, chr: &str) -> Result<usize, Error> {
+    fn chr_length(&mut self, chr: &str) -> Result<usize, Error> {
         match self.chroms().get(chr) {
             Some(v) => Ok(*v as usize),
             None => Err(Error::MissingName(chr.to_string())),
@@ -357,8 +374,12 @@ impl TwoBitFile {
 }
 
 impl SequenceRecord {
-    fn sequence<P: AsRef<Path>>(&self, path: P, start: usize, end: usize) -> Result<String, Error> {
-        let mut reader = ValueReader::from_path(path)?;
+    fn sequence<R: Read + Seek>(
+        &self,
+        reader: &mut ValueReader<R>,
+        start: usize,
+        end: usize,
+    ) -> Result<String, Error> {
         let mut skip = start % 4;
         reader
             .seek(SeekFrom::Start(self.dna_offset as u64))
@@ -438,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_chroms() {
-        let bit = TwoBitFile::open(TESTFILE, true).unwrap();
+        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
         let mut chr_count = 0;
         for (chr, len) in bit.chroms() {
             match chr.as_ref() {
@@ -454,14 +475,14 @@ mod tests {
     #[test]
     fn test_full_sequence() {
         let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATCGATCGTAGCTAGCTAGCTAGCTGATCNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".to_string();
-        let bit = TwoBitFile::open(TESTFILE, true).unwrap();
+        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
         assert_eq!(seq, bit.full_sequence("chr1").unwrap());
     }
 
     #[test]
     fn test_sequence() {
         let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC";
-        let bit = TwoBitFile::open(TESTFILE, true).unwrap();
+        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
         assert_eq!(seq, bit.sequence("chr1", 24, 74).unwrap());
         // let's try different offsets to test positions not divisible by 4
         let seq = "ACGTACGTagctagctGATC";
@@ -483,7 +504,7 @@ mod tests {
             g: 0.08666666666666667,
             n: 100.0 / 150.0,
         };
-        let bit = TwoBitFile::open(TESTFILE, true).unwrap();
+        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
         assert_eq!(percentages, bit.full_bases_percentages("chr1").unwrap());
     }
 
@@ -503,7 +524,7 @@ mod tests {
             g: 0.12,
             n: 26.0 / 50.0,
         };
-        let bit = TwoBitFile::open(TESTFILE, true).unwrap();
+        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
         assert_eq!(counts, bit.bases("chr1", 24, 74).unwrap());
         assert_eq!(percentages, bit.bases_percentages("chr1", 24, 74).unwrap());
     }
@@ -517,13 +538,13 @@ mod tests {
             hard_masks_count: 150,
             soft_masks_count: 8,
         };
-        let bit = TwoBitFile::open(TESTFILE, true).unwrap();
+        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
         assert_eq!(bit.info().unwrap(), info);
     }
 
     #[test]
     fn test_hard_masked_blocks() {
-        let bit = TwoBitFile::open(TESTFILE, true).unwrap();
+        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
         let mut i = 0;
         for block_ in bit.full_hard_masked_blocks("chr1").unwrap() {
             match i {
@@ -545,7 +566,7 @@ mod tests {
 
     #[test]
     fn test_soft_masked_blocks() {
-        let bit = TwoBitFile::open(TESTFILE, true).unwrap();
+        let mut bit = TwoBitFile::open(TESTFILE, true).unwrap();
         let mut i = 0;
         for block_ in bit.full_soft_masked_blocks("chr1").unwrap() {
             match i {
