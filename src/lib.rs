@@ -93,6 +93,8 @@ pub struct TwoBitFile<R: Reader> {
     sequences: HashMap<String, FileIndex>,
 }
 
+pub type BoxTwoBitFile = TwoBitFile<Box<dyn Reader>>;
+
 struct SequenceRecord {
     dna_offset: FileIndex,
     dna_size: Field,
@@ -149,6 +151,18 @@ impl<R: Reader> TwoBitFile<R> {
     /// * `softmask_enabled` - return lower case nucleotides for soft blocks
     pub fn new(reader: R, softmask_enabled: bool) -> Result<Self, Error> {
         Self::from_value_reader(ValueReader::new(reader)?, softmask_enabled)
+    }
+
+    /// Box the reader (useful for type erasure if using multiple reader types).
+    pub fn boxed(self) -> BoxTwoBitFile
+    where
+        R: 'static,
+    {
+        TwoBitFile {
+            reader: self.reader.boxed(),
+            softmask_enabled: self.softmask_enabled,
+            sequences: self.sequences,
+        }
     }
 
     fn from_value_reader(

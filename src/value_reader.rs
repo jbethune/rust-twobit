@@ -25,6 +25,8 @@ pub struct ValueReader<R: Reader> {
     swap_endian: bool,
 }
 
+pub type BoxValueReader = ValueReader<Box<dyn Reader>>;
+
 impl ValueReader<BufReader<File>> {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         Self::new(BufReader::new(File::open(path)?))
@@ -73,6 +75,18 @@ impl<R: Reader> ValueReader<R> {
             Err(Error::UnsupportedVersion(
                 "Versions larger than 0 are not supported".to_string(),
             ))
+        }
+    }
+
+    /// Box the reader (useful for type erasure if using multiple reader types).
+    pub fn boxed(self) -> BoxValueReader
+    where
+        R: 'static,
+    {
+        ValueReader {
+            reader: Box::new(self.reader),
+            twobit_version: self.twobit_version,
+            swap_endian: self.swap_endian,
         }
     }
 
