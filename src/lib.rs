@@ -135,7 +135,7 @@ impl TwoBitFile<Cursor<Vec<u8>>> {
 }
 
 impl<R: Reader> TwoBitFile<R> {
-    /// Open a 2bit file from a given generic reader.
+    /// Open a 2bit file from a given generic reader (softmask is disabled by default).
     pub fn new(reader: R) -> Result<Self> {
         Self::from_value_reader(ValueReader::new(reader)?)
     }
@@ -153,6 +153,8 @@ impl<R: Reader> TwoBitFile<R> {
     }
 
     /// Enable/disable softmask: if enabled, return lower case nucleotides for soft blocks.
+    ///
+    /// Note: this option is disabled by default.
     #[must_use]
     pub fn enable_softmask(self, softmask_enabled: bool) -> Self {
         Self {
