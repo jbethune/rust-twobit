@@ -437,7 +437,7 @@ impl SequenceRecord {
                     64 => 'C',
                     128 => 'A',
                     192 => 'G',
-                    _ => panic!("Bit flag magic is broken"),
+                    _ => return Err(Error::BadNucleotide(char::from(byte & 192))),
                 };
                 byte <<= 2;
                 result.push(nuc);
