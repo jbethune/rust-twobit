@@ -114,7 +114,7 @@ impl TwoBitFile<BufReader<File>> {
     /// * `path` - A path to the 2bit file
     /// * `softmask_enabled` - return lower case nucleotides for soft blocks
     pub fn open<P: AsRef<Path>>(path: P, softmask_enabled: bool) -> Result<Self, Error> {
-        Self::from_value_reader(ValueReader::from_path(path)?, softmask_enabled)
+        Self::from_value_reader(ValueReader::open(path)?, softmask_enabled)
     }
 }
 

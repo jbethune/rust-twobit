@@ -20,7 +20,7 @@ pub struct ValueReader<R: Read + Seek> {
 }
 
 impl ValueReader<BufReader<File>> {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         Self::new(BufReader::new(File::open(path)?))
     }
 }
