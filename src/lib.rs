@@ -47,11 +47,10 @@ const REV_SIGNATURE: Field = 0x4327_411A;
 /// Usage:
 ///
 /// ```
-/// extern crate twobit;
 /// use twobit::TwoBitFile;
 ///
-/// let enable_softmask=true; //set to false to enforce upper case sequences
-/// let mut tb = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
+/// // softmask is disabled by default (see below for details)
+/// let mut tb = TwoBitFile::open("assets/foo.2bit").unwrap();
 /// let chromosome_lengths = tb.chroms();
 /// assert_eq!(chromosome_lengths["chr1"], 150);
 /// assert_eq!(chromosome_lengths["chr2"], 100);
@@ -61,23 +60,17 @@ const REV_SIGNATURE: Field = 0x4327_411A;
 /// and soft masks for lower-case nucleotides (e.g. "t" instead of "T").
 ///
 /// ```
-/// # extern crate twobit;
 /// # use twobit::TwoBitFile;
-/// # let enable_softmask=true; //set to false to enforce upper case sequences
-/// # let mut tb = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
-///
+/// let mut tb_soft = TwoBitFile::open("assets/foo.2bit").unwrap().enable_softmask(true);
 /// let expected_seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC"; // some lower and some upper case
-/// assert_eq!(tb.sequence("chr1",24,74).unwrap(), expected_seq);
+/// assert_eq!(tb_soft.sequence("chr1", 24, 74).unwrap(), expected_seq);
 /// ```
 /// It is not possible to disable hard masks but you can disable soft masks:
 /// ```
-/// # extern crate twobit;
 /// # use twobit::TwoBitFile;
-///
-/// let enable_softmask=false;
-/// let mut tb_nosoft = TwoBitFile::open("assets/foo.2bit", enable_softmask).unwrap();
+/// let mut tb_nosoft = TwoBitFile::open("assets/foo.2bit").unwrap().enable_softmask(false);
 /// let expected_seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTAGCTAGCTGATC"; // all upper case
-/// assert_eq!(tb_nosoft.sequence("chr1",24,74).unwrap(), expected_seq);
+/// assert_eq!(tb_nosoft.sequence("chr1", 24, 74).unwrap(), expected_seq);
 /// ```
 ///
 /// There are 2 variants for every sequence-related method:
@@ -119,11 +112,8 @@ pub struct TwoBitFileInfo {
 
 impl TwoBitFile<BufReader<File>> {
     /// Open a 2bit file from a given file path.
-    ///
-    /// * `path` - A path to the 2bit file
-    /// * `softmask_enabled` - return lower case nucleotides for soft blocks
-    pub fn open<P: AsRef<Path>>(path: P, softmask_enabled: bool) -> Result<Self, Error> {
-        Self::from_value_reader(ValueReader::open(path)?, softmask_enabled)
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        Self::from_value_reader(ValueReader::open(path)?)
     }
 }
 
@@ -132,25 +122,22 @@ where
     Cursor<T>: Reader,
 {
     /// Open a 2bit file from a given in-memory buffer.
-    pub fn from_buf(buf: T, softmask_enabled: bool) -> Result<Self, Error> {
-        Self::from_value_reader(ValueReader::from_buf(buf)?, softmask_enabled)
+    pub fn from_buf(buf: T) -> Result<Self, Error> {
+        Self::from_value_reader(ValueReader::from_buf(buf)?)
     }
 }
 
 impl TwoBitFile<Cursor<Vec<u8>>> {
     /// Open a 2bit file from a given file path and read all of it into memory.
-    pub fn open_and_read<P: AsRef<Path>>(path: P, softmask_enabled: bool) -> Result<Self, Error> {
-        Self::from_value_reader(ValueReader::open_and_read(path)?, softmask_enabled)
+    pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        Self::from_value_reader(ValueReader::open_and_read(path)?)
     }
 }
 
 impl<R: Reader> TwoBitFile<R> {
-    /// Open a 2bit file from a given reader.
-    ///
-    /// * `reader` - arbitrary seek-enabled reader
-    /// * `softmask_enabled` - return lower case nucleotides for soft blocks
-    pub fn new(reader: R, softmask_enabled: bool) -> Result<Self, Error> {
-        Self::from_value_reader(ValueReader::new(reader)?, softmask_enabled)
+    /// Open a 2bit file from a given generic reader.
+    pub fn new(reader: R) -> Result<Self, Error> {
+        Self::from_value_reader(ValueReader::new(reader)?)
     }
 
     /// Box the reader (useful for type erasure if using multiple reader types).
@@ -165,10 +152,16 @@ impl<R: Reader> TwoBitFile<R> {
         }
     }
 
-    fn from_value_reader(
-        mut reader: ValueReader<R>,
-        softmask_enabled: bool,
-    ) -> Result<Self, Error> {
+    /// Enable/disable softmask: if enabled, return lower case nucleotides for soft blocks.
+    #[must_use]
+    pub fn enable_softmask(self, softmask_enabled: bool) -> Self {
+        Self {
+            softmask_enabled,
+            ..self
+        }
+    }
+
+    fn from_value_reader(mut reader: ValueReader<R>) -> Result<Self, Error> {
         reader.seek_start()?; // rewind to the start of the file, skipping the header
 
         let mut sequences = HashMap::new();
@@ -186,7 +179,7 @@ impl<R: Reader> TwoBitFile<R> {
 
         Ok(Self {
             reader,
-            softmask_enabled,
+            softmask_enabled: false,
             sequences,
         })
     }
@@ -504,14 +497,13 @@ mod tests {
         func: impl Fn(TwoBitFile<Box<dyn Reader>>) -> Result<(), Error>,
     ) {
         let mut files = vec![
-            TwoBitFile::open(TESTFILE, softmask_enabled)
-                .unwrap()
-                .boxed(),
-            TwoBitFile::open_and_read(TESTFILE, softmask_enabled)
-                .unwrap()
-                .boxed(),
+            TwoBitFile::open(TESTFILE).unwrap().boxed(),
+            TwoBitFile::open_and_read(TESTFILE).unwrap().boxed(),
         ];
-        for tb in files.drain(..) {
+        for mut tb in files.drain(..) {
+            if softmask_enabled {
+                tb = tb.enable_softmask(true);
+            }
             func(tb).unwrap();
         }
     }
