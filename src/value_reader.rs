@@ -72,6 +72,18 @@ impl<R: Read + Seek> ValueReader<R> {
         }
     }
 
+    pub fn stream_len(&mut self) -> Result<u64, Error> {
+        // borrowed from unstable Seek method in stdlib
+        let old_pos = self.reader.stream_position()?;
+        let len = self.reader.seek(SeekFrom::End(0))?;
+        // Avoid seeking a third time when we were already at the end of the
+        // stream. The branch is usually way cheaper than a seek operation.
+        if old_pos != len {
+            self.reader.seek(SeekFrom::Start(old_pos))?;
+        }
+        Ok(len)
+    }
+
     pub fn byte(&mut self) -> Result<u8, Error> {
         let mut byte_slice: [u8; 1] = [0; 1];
         self.fill_completely(&mut byte_slice)?;
