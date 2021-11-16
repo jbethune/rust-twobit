@@ -416,9 +416,7 @@ impl SequenceRecord {
         end: usize,
     ) -> Result<String> {
         let mut skip = start % 4;
-        reader
-            .seek(SeekFrom::Start(u64::from(self.dna_offset)))
-            .unwrap(); // beginning of the DNA sequence
+        reader.seek(SeekFrom::Start(u64::from(self.dna_offset)))?; // beginning of the DNA sequence
         reader.seek(SeekFrom::Current(start as i64 / 4))?; // position where we want to start reading
 
         let length = end - start;
