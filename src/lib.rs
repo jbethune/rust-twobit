@@ -7,9 +7,16 @@
 //!
 //! Note that most methods perform IO operations and return a `Result` for that reason.
 //!
-//! The main entry point for users of this crate is the [TwoBitFile](struct.TwoBitFile.html)
+//! The main entry point for users of this crate is the [`TwoBitFile`](struct.TwoBitFile.html)
 //! struct. Please see its documentation for details how to use this crate.
-//!
+
+#![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::module_name_repetitions,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation
+)]
 
 pub mod block;
 pub mod counts;
@@ -30,10 +37,10 @@ use crate::types::{Field, FileIndex};
 use crate::value_reader::ValueReader;
 
 /// 2bit signature magic number
-const SIGNATURE: Field = 0x1A412743;
+const SIGNATURE: Field = 0x1A41_2743;
 
 /// 2bit signature magic number reversed
-const REV_SIGNATURE: Field = 0x4327411A;
+const REV_SIGNATURE: Field = 0x4327_411A;
 
 /// Read data from a 2bit file
 ///
@@ -148,8 +155,8 @@ impl<R: Read + Seek> TwoBitFile<R> {
 
         Ok(Self {
             reader,
-            sequences,
             softmask_enabled,
+            sequences,
         })
     }
 
@@ -290,10 +297,11 @@ impl<R: Read + Seek> TwoBitFile<R> {
                     let block_end = block.start + block.length;
                     if block_end as usize <= start {
                         continue;
-                    } else if block.start as usize > end {
+                    }
+                    if block.start as usize > end {
                         break;
                     }
-                    result.push(block)
+                    result.push(block);
                 }
                 Ok(result)
             }
@@ -327,10 +335,11 @@ impl<R: Read + Seek> TwoBitFile<R> {
                     let block_end = block.start + block.length;
                     if block_end as usize <= start {
                         continue;
-                    } else if block.start as usize > end {
+                    }
+                    if block.start as usize > end {
                         break;
                     }
-                    result.push(block)
+                    result.push(block);
                 }
                 Ok(result)
             }
@@ -343,7 +352,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
             .sequences
             .get(chr)
             .ok_or_else(|| Error::MissingName(chr.to_string()))?;
-        self.reader.seek(SeekFrom::Start(*offset as u64))?;
+        self.reader.seek(SeekFrom::Start(u64::from(*offset)))?;
         let dna_size = self.reader.field()?;
         let n_blocks = self.reader.blocks()?;
         let soft_mask_blocks = {
@@ -382,7 +391,7 @@ impl SequenceRecord {
     ) -> Result<String, Error> {
         let mut skip = start % 4;
         reader
-            .seek(SeekFrom::Start(self.dna_offset as u64))
+            .seek(SeekFrom::Start(u64::from(self.dna_offset)))
             .unwrap(); // beginning of the DNA sequence
         reader.seek(SeekFrom::Current(start as i64 / 4))?; // position where we want to start reading
 
@@ -421,7 +430,8 @@ impl SequenceRecord {
                     let block_end = (block.start + block.length) as usize;
                     if block_end <= start {
                         continue;
-                    } else if end <= block.start as usize {
+                    }
+                    if end <= block.start as usize {
                         break; // should be the last block assuming ordering is upheld
                     }
                     let mut range = block

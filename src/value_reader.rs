@@ -10,6 +10,8 @@ use crate::error::Error;
 use crate::types::{Field, FileIndex};
 use crate::{REV_SIGNATURE, SIGNATURE};
 
+const FIELD_SIZE: usize = size_of::<Field>();
+
 /// Extract binary data from 2bit files
 ///
 /// This reads all types of fields except the sequences.
@@ -27,7 +29,7 @@ impl ValueReader<BufReader<File>> {
 
 impl<R: Read + Seek> ValueReader<R> {
     pub fn new(reader: R) -> Result<Self, Error> {
-        let mut result = ValueReader {
+        let mut result = Self {
             reader,
             twobit_version: 0,
             swap_endian: false,
@@ -91,14 +93,13 @@ impl<R: Read + Seek> ValueReader<R> {
     }
 
     pub fn field(&mut self) -> Result<Field, Error> {
-        const FIELD_SIZE: usize = size_of::<Field>();
         let mut field: [u8; FIELD_SIZE] = [0; FIELD_SIZE];
         self.fill_completely(&mut field)?;
-        Ok(slice_to_field(&field, self.swap_endian))
+        Ok(slice_to_field(field, self.swap_endian))
     }
 
     pub fn string(&mut self, length: usize) -> Result<String, Error> {
-        let mut buf = vec![0u8; length as usize];
+        let mut buf = vec![0_u8; length];
         self.fill_completely(&mut buf)?;
         Ok(String::from_utf8(buf)?)
     }
@@ -126,12 +127,12 @@ impl<R: Read + Seek> ValueReader<R> {
         Ok(())
     }
 
-    /// Read bytes from the BufferedReader until the buffer is completely full
+    /// Read bytes from the reader until the buffer is completely full
     fn fill_completely(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         let n_bytes = buf.len();
         let mut bytes_read = 0;
         while bytes_read < n_bytes {
-            // our buffered reader doesn't guarantee that it's always reading enough bytes at once
+            // our reader doesn't guarantee that it's always reading enough bytes at once
             bytes_read += self.reader.read(&mut buf[bytes_read..])?;
         }
         assert_eq!(bytes_read, n_bytes);
@@ -139,17 +140,17 @@ impl<R: Read + Seek> ValueReader<R> {
     }
 }
 
-fn slice_to_field(slice: &[u8; 4], swap_endian: bool) -> Field {
+fn slice_to_field(slice: [u8; FIELD_SIZE], swap_endian: bool) -> Field {
     let mut result = 0;
     if swap_endian {
-        for byte in slice.iter().rev() {
+        for byte in slice.iter().rev().copied() {
             result <<= 8;
-            result += *byte as Field;
+            result += Field::from(byte);
         }
     } else {
         for byte in slice {
             result <<= 8;
-            result += *byte as Field;
+            result += Field::from(byte);
         }
     }
     result
@@ -161,17 +162,17 @@ mod tests {
 
     #[test]
     fn test_slice_to_field() {
-        let slice: &[u8; 4] = &[0x1A, 0x41, 0x27, 0x43];
+        let slice: [u8; 4] = [0x1A, 0x41, 0x27, 0x43];
         assert_eq!(slice_to_field(slice, false), 0x1A412743);
-        let slice: &[u8; 4] = &[0x43, 0x27, 0x41, 0x1A];
+        let slice: [u8; 4] = [0x43, 0x27, 0x41, 0x1A];
         assert_eq!(slice_to_field(slice, false), 0x4327411A);
 
         assert_eq!(
-            slice_to_field(&[0x1A, 0x41, 0x27, 0x43], true),
-            slice_to_field(&[0x43, 0x27, 0x41, 0x1A,], false)
+            slice_to_field([0x1A, 0x41, 0x27, 0x43], true),
+            slice_to_field([0x43, 0x27, 0x41, 0x1A,], false)
         );
 
-        let slice: &[u8; 4] = &[0, 2, 3, 4];
+        let slice: [u8; 4] = [0, 2, 3, 4];
         assert_eq!(slice_to_field(slice, false), 2 * 65536 + 3 * 256 + 4);
     }
 }

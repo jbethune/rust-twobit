@@ -2,8 +2,6 @@
 //!
 //! This module makes no assumptions about softmasked sequences. An "t" is the same as a "T".
 
-use std::convert::From;
-
 /// Number of bases of each type in a sequence
 #[derive(PartialEq, Debug, Default)]
 pub struct BaseCounts {
@@ -15,7 +13,8 @@ pub struct BaseCounts {
 }
 
 impl BaseCounts {
-    pub fn sum(&self) -> usize {
+    #[must_use]
+    pub const fn sum(&self) -> usize {
         self.a + self.c + self.g + self.t + self.n
     }
 }
@@ -32,7 +31,7 @@ pub struct BasePercentages {
 
 impl From<BaseCounts> for BasePercentages {
     fn from(counts: BaseCounts) -> Self {
-        let mut result = BasePercentages::default();
+        let mut result = Self::default();
         let sum = counts.sum() as f64;
         result.a = (counts.a as f64) / sum;
         result.c = (counts.c as f64) / sum;
