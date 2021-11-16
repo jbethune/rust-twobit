@@ -170,7 +170,7 @@ impl<R: Reader> ValueReader<R> {
             // our reader doesn't guarantee that it's always reading enough bytes at once
             bytes_read += self.reader.read(&mut buf[bytes_read..])?;
         }
-        assert_eq!(bytes_read, n_bytes);
+        debug_assert_eq!(bytes_read, n_bytes);
         Ok(())
     }
 }
