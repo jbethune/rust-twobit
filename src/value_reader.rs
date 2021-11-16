@@ -90,25 +90,23 @@ impl<R: Reader> ValueReader<R> {
         }
     }
 
+    #[inline]
     pub fn seek(&mut self, pos: SeekFrom) -> Result<FileIndex> {
-        match self.reader.seek(pos) {
-            Ok(v) => Ok(v as FileIndex),
-            Err(e) => Err(e.into()),
-        }
+        Ok(self.reader.seek(pos)? as _)
     }
 
+    #[inline]
     pub fn seek_start(&mut self) -> Result<()> {
         self.seek(SeekFrom::Start(2 * size_of::<Field>() as u64))?;
         Ok(())
     }
 
+    #[inline]
     pub fn tell(&mut self) -> Result<FileIndex> {
-        match self.reader.seek(SeekFrom::Current(0)) {
-            Ok(v) => Ok(v as FileIndex),
-            Err(e) => Err(e.into()),
-        }
+        Ok(self.reader.seek(SeekFrom::Current(0))? as _)
     }
 
+    #[inline]
     pub fn stream_len(&mut self) -> Result<u64> {
         // borrowed from unstable Seek method in stdlib
         let old_pos = self.reader.stream_position()?;
@@ -121,24 +119,28 @@ impl<R: Reader> ValueReader<R> {
         Ok(len)
     }
 
+    #[inline]
     pub fn byte(&mut self) -> Result<u8> {
-        let mut byte_slice: [u8; 1] = [0; 1];
-        self.fill_completely(&mut byte_slice)?;
-        Ok(byte_slice[0])
+        let mut buf: [u8; 1] = [0; 1];
+        self.reader.read_exact(&mut buf)?;
+        Ok(buf[0])
     }
 
+    #[inline]
     pub fn field(&mut self) -> Result<Field> {
         let mut field: [u8; FIELD_SIZE] = [0; FIELD_SIZE];
-        self.fill_completely(&mut field)?;
+        self.reader.read_exact(&mut field)?;
         Ok(slice_to_field(field, self.swap_endian))
     }
 
+    #[inline]
     pub fn string(&mut self, length: usize) -> Result<String> {
         let mut buf = vec![0_u8; length];
-        self.fill_completely(&mut buf)?;
+        self.reader.read_exact(&mut buf)?;
         Ok(String::from_utf8(buf)?)
     }
 
+    #[inline]
     pub fn blocks(&mut self) -> Result<Vec<Block>> {
         let num_blocks = self.field()? as usize;
         let mut result = Vec::with_capacity(num_blocks);
@@ -155,22 +157,11 @@ impl<R: Reader> ValueReader<R> {
         Ok(result)
     }
 
+    #[inline]
     pub fn skip_blocks(&mut self) -> Result<()> {
         let num_blocks = self.field()? as usize;
         let skip = num_blocks * 2 * size_of::<Field>();
         self.reader.seek(SeekFrom::Current(skip as i64))?;
-        Ok(())
-    }
-
-    /// Read bytes from the reader until the buffer is completely full
-    fn fill_completely(&mut self, buf: &mut [u8]) -> Result<()> {
-        let n_bytes = buf.len();
-        let mut bytes_read = 0;
-        while bytes_read < n_bytes {
-            // our reader doesn't guarantee that it's always reading enough bytes at once
-            bytes_read += self.reader.read(&mut buf[bytes_read..])?;
-        }
-        debug_assert_eq!(bytes_read, n_bytes);
         Ok(())
     }
 }
