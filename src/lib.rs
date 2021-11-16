@@ -408,6 +408,32 @@ impl<R: Reader> TwoBitFile<R> {
     }
 }
 
+fn replace_blocks<const HARD: bool>(seq: &mut Vec<u8>, seq_block: Block, blocks: &[Block]) {
+    let seq_block_end = seq_block.start + seq_block.length;
+    for block in blocks {
+        if block.start + seq_block.length <= seq_block.start {
+            continue;
+        }
+        if seq_block_end <= block.start {
+            break; // should be the last block assuming ordering is upheld
+        }
+        let mut range = block
+            .overlap(&seq_block)
+            .map_or_else(|| unsafe { core::hint::unreachable_unchecked() }, |r| r);
+        range.start -= seq_block.start as usize;
+        range.end -= seq_block.start as usize;
+        for i in range {
+            unsafe {
+                *seq.get_unchecked_mut(i) = if HARD {
+                    b'N'
+                } else {
+                    seq.get_unchecked(i).to_ascii_lowercase()
+                }
+            }
+        }
+    }
+}
+
 impl SequenceRecord {
     fn sequence<R: Reader>(
         &self,
@@ -421,20 +447,21 @@ impl SequenceRecord {
 
         let length = end - start;
 
-        let mut result = String::with_capacity(length);
+        let mut result = Vec::with_capacity(length);
+
         while result.len() < length {
             let mut byte = reader.byte()?;
             for _ in 0..4 {
-                if skip > 0 {
+                if skip != 0 {
                     skip -= 1;
                     byte <<= 2;
                     continue;
                 }
                 let nuc = match byte & 192 {
-                    0 => 'T',
-                    64 => 'C',
-                    128 => 'A',
-                    192 => 'G',
+                    0 => b'T',
+                    64 => b'C',
+                    128 => b'A',
+                    192 => b'G',
                     _ => return Err(Error::BadNucleotide(char::from(byte & 192))),
                 };
                 byte <<= 2;
@@ -446,44 +473,12 @@ impl SequenceRecord {
         }
 
         let seq_block = Block::new(start as Field, length as Field);
+        replace_blocks::<true>(&mut result, seq_block, &self.n_blocks);
+        replace_blocks::<false>(&mut result, seq_block, &self.soft_mask_blocks);
 
-        // closure over `seq_block`, `start` and `end`
-        let replace_blocks =
-            |mut seq: String, blocks: &Vec<Block>, replacement_mode: BlockReplacementMode| {
-                for block in blocks {
-                    let block_end = (block.start + block.length) as usize;
-                    if block_end <= start {
-                        continue;
-                    }
-                    if end <= block.start as usize {
-                        break; // should be the last block assuming ordering is upheld
-                    }
-                    let mut range = block
-                        .overlap(&seq_block)
-                        .expect("Block ordering not upheld");
-
-                    // adjust for partial sequence
-                    range.start -= start;
-                    range.end -= start;
-
-                    let replacement = match replacement_mode {
-                        BlockReplacementMode::Hard => "N".repeat(range.end - range.start),
-                        BlockReplacementMode::Soft => seq[range.clone()].to_lowercase(),
-                    };
-                    seq.replace_range(range, &replacement);
-                }
-                seq
-            };
-        let result = replace_blocks(result, &self.n_blocks, BlockReplacementMode::Hard);
-        let result = replace_blocks(result, &self.soft_mask_blocks, BlockReplacementMode::Soft);
-
-        Ok(result)
+        // Safety: we know that it's ascii, so it's ok to use unchecked conversion
+        Ok(unsafe { String::from_utf8_unchecked(result) })
     }
-}
-
-enum BlockReplacementMode {
-    Soft, // convert to lower case
-    Hard, // replace with Ns
 }
 
 #[cfg(test)]
