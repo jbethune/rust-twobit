@@ -60,6 +60,11 @@ impl<R: Read + Seek> ValueReader<R> {
         }
     }
 
+    pub fn seek_start(&mut self) -> Result<(), Error> {
+        self.seek(SeekFrom::Start(2 * size_of::<Field>() as u64))?;
+        Ok(())
+    }
+
     pub fn tell(&mut self) -> Result<FileIndex, Error> {
         match self.reader.seek(SeekFrom::Current(0)) {
             Ok(v) => Ok(v as FileIndex),
