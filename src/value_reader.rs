@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::block::Block;
 use crate::error::{Error, Result};
 use crate::types::{Field, FileIndex};
-use crate::{REV_SIGNATURE, SIGNATURE};
+use crate::{SequenceRecord, REV_SIGNATURE, SIGNATURE};
 
 const FIELD_SIZE: usize = size_of::<Field>();
 
@@ -157,12 +157,19 @@ impl<R: Reader> ValueReader<R> {
         Ok(result)
     }
 
-    #[inline]
-    pub fn skip_blocks(&mut self) -> Result<()> {
-        let num_blocks = self.field()? as usize;
-        let skip = num_blocks * 2 * size_of::<Field>();
-        self.reader.seek(SeekFrom::Current(skip as i64))?;
-        Ok(())
+    pub(crate) fn sequence_record(&mut self) -> Result<SequenceRecord> {
+        let dna_size = self.field()?;
+        let n_blocks = self.blocks()?;
+        let soft_mask_blocks = self.blocks()?;
+        let _reserved = self.field()?;
+        let dna_offset = self.tell()?;
+
+        Ok(SequenceRecord {
+            dna_offset,
+            dna_size,
+            n_blocks,
+            soft_mask_blocks,
+        })
     }
 }
 

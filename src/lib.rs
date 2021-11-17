@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::fs::File;
 use std::io::{BufReader, Cursor, SeekFrom};
+use std::ops::Deref;
 use std::path::Path;
 
 use crate::block::Block;
@@ -82,17 +83,40 @@ const REV_SIGNATURE: Field = 0x4327_411A;
 /// `full_`.
 pub struct TwoBitFile<R: Reader> {
     reader: ValueReader<R>,
+    sequences: SequenceRecords,
     softmask_enabled: bool,
-    sequences: HashMap<String, FileIndex>,
 }
 
 pub type BoxTwoBitFile = TwoBitFile<Box<dyn Reader>>;
 
-struct SequenceRecord {
+#[derive(Debug, Clone)]
+pub(crate) struct SequenceRecord {
     dna_offset: FileIndex,
     dna_size: Field,
     n_blocks: Vec<Block>,
     soft_mask_blocks: Vec<Block>,
+}
+
+// This wrapper is needed to avoid lifetime problems
+#[derive(Debug, Clone)]
+struct SequenceRecords(HashMap<String, SequenceRecord>);
+
+impl SequenceRecords {
+    #[inline]
+    pub fn query(&self, chr: &str) -> Result<&SequenceRecord> {
+        self.0
+            .get(chr)
+            .ok_or_else(|| Error::MissingName(chr.to_string()))
+    }
+}
+
+impl Deref for SequenceRecords {
+    type Target = HashMap<String, SequenceRecord>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 /// General information about a 2bit file
@@ -147,8 +171,8 @@ impl<R: Reader> TwoBitFile<R> {
     {
         TwoBitFile {
             reader: self.reader.boxed(),
-            softmask_enabled: self.softmask_enabled,
             sequences: self.sequences,
+            softmask_enabled: self.softmask_enabled,
         }
     }
 
@@ -175,25 +199,26 @@ impl<R: Reader> TwoBitFile<R> {
             let name_size = reader.byte()? as usize;
             let name = reader.string(name_size)?;
             let seq_offset = reader.field()?;
-
-            sequences.insert(name, seq_offset);
+            let offset = reader.tell()?;
+            reader.seek(SeekFrom::Start(u64::from(seq_offset)))?;
+            let seq_record = reader.sequence_record()?;
+            reader.seek(SeekFrom::Start(u64::from(offset)))?;
+            sequences.insert(name, seq_record);
         }
 
         Ok(Self {
             reader,
+            sequences: SequenceRecords(sequences),
             softmask_enabled: false,
-            sequences,
         })
     }
 
     /// Get the sizes of chromosomes in a 2bit file as a `HashMap`
     pub fn chroms(&mut self) -> HashMap<String, Field> {
-        let mut result = HashMap::new();
-        for chr in &self.sequences.keys().cloned().collect::<Vec<_>>() {
-            let seq = self.sequence_record(chr).expect("Chromosome must be valid");
-            result.insert((*chr).clone(), seq.dna_size);
-        }
-        result
+        self.sequences
+            .iter()
+            .map(|(k, v)| (k.clone(), v.dna_size))
+            .collect()
     }
 
     /// Get the full sequence of a chromosome
@@ -201,12 +226,8 @@ impl<R: Reader> TwoBitFile<R> {
     /// * `chr` Name of the chromosome from the 2bit file
     /// * returns the full sequence as a `String` on success
     pub fn full_sequence(&mut self, chr: &str) -> Result<String> {
-        if self.sequences.contains_key(chr) {
-            let record = self.sequence_record(chr)?;
-            record.sequence(&mut self.reader, 0, record.dna_size as usize)
-        } else {
-            Err(Error::MissingName(chr.to_string()))
-        }
+        let dna_size = self.sequences.query(chr)?.dna_size;
+        self.read_sequence(chr, 0, dna_size as _)
     }
 
     /// Get a partial sequence of a chromosome
@@ -216,12 +237,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// * `end` Stop position of the sequence
     /// * returns the full sequence as a `String` on success
     pub fn sequence(&mut self, chr: &str, start: usize, end: usize) -> Result<String> {
-        if self.sequences.contains_key(chr) {
-            let record = self.sequence_record(chr)?;
-            record.sequence(&mut self.reader, start, end)
-        } else {
-            Err(Error::MissingName(chr.to_string()))
-        }
+        self.read_sequence(chr, start, end)
     }
 
     /// Count bases of a chromosome
@@ -244,9 +260,7 @@ impl<R: Reader> TwoBitFile<R> {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn bases(&mut self, chr: &str, start: usize, end: usize) -> Result<BaseCounts> {
-        let nucs = self
-            .sequence_record(chr)?
-            .sequence(&mut self.reader, start, end)?;
+        let nucs = self.read_sequence(chr, start, end)?;
         let mut result = BaseCounts::default();
         for nuc in nucs.chars() {
             match nuc {
@@ -280,7 +294,7 @@ impl<R: Reader> TwoBitFile<R> {
         let mut soft_masks_count = 0;
         for chr in &self.sequences.keys().cloned().collect::<Vec<_>>() {
             total_length += self.chr_length(chr)?;
-            let record = self.sequence_record(chr)?;
+            let record = self.sequences.query(chr)?;
             hard_masks_count +=
                 record.n_blocks.iter().fold(0, |acc, blk| acc + blk.length) as usize;
             soft_masks_count += record
@@ -301,8 +315,8 @@ impl<R: Reader> TwoBitFile<R> {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn full_hard_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>> {
-        match self.sequence_record(chr) {
-            Ok(record) => Ok(record.n_blocks),
+        match self.sequences.query(chr) {
+            Ok(record) => Ok(record.n_blocks.clone()),
             Err(e) => Err(e),
         }
     }
@@ -316,10 +330,10 @@ impl<R: Reader> TwoBitFile<R> {
         start: usize,
         end: usize,
     ) -> Result<Vec<Block>> {
-        match self.sequence_record(chr) {
+        match self.sequences.query(chr) {
             Ok(record) => {
                 let mut result = Vec::new();
-                for block in record.n_blocks {
+                for block in &record.n_blocks {
                     let block_end = block.start + block.length;
                     if block_end as usize <= start {
                         continue;
@@ -327,7 +341,7 @@ impl<R: Reader> TwoBitFile<R> {
                     if block.start as usize > end {
                         break;
                     }
-                    result.push(block);
+                    result.push(*block);
                 }
                 Ok(result)
             }
@@ -339,8 +353,8 @@ impl<R: Reader> TwoBitFile<R> {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn full_soft_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>> {
-        match self.sequence_record(chr) {
-            Ok(record) => Ok(record.soft_mask_blocks),
+        match self.sequences.query(chr) {
+            Ok(record) => Ok(record.soft_mask_blocks.clone()),
             Err(e) => Err(e),
         }
     }
@@ -354,10 +368,10 @@ impl<R: Reader> TwoBitFile<R> {
         start: usize,
         end: usize,
     ) -> Result<Vec<Block>> {
-        match self.sequence_record(chr) {
+        match self.sequences.query(chr) {
             Ok(record) => {
                 let mut result = Vec::new();
-                for block in record.soft_mask_blocks {
+                for block in &record.soft_mask_blocks {
                     let block_end = block.start + block.length;
                     if block_end as usize <= start {
                         continue;
@@ -365,39 +379,12 @@ impl<R: Reader> TwoBitFile<R> {
                     if block.start as usize > end {
                         break;
                     }
-                    result.push(block);
+                    result.push(*block);
                 }
                 Ok(result)
             }
             Err(e) => Err(e),
         }
-    }
-
-    fn sequence_record(&mut self, chr: &str) -> Result<SequenceRecord> {
-        let offset = self
-            .sequences
-            .get(chr)
-            .ok_or_else(|| Error::MissingName(chr.to_string()))?;
-        self.reader.seek(SeekFrom::Start(u64::from(*offset)))?;
-        let dna_size = self.reader.field()?;
-        let n_blocks = self.reader.blocks()?;
-        let soft_mask_blocks = {
-            if self.softmask_enabled {
-                self.reader.blocks()?
-            } else {
-                self.reader.skip_blocks()?;
-                Vec::new()
-            }
-        };
-        let _reserved = self.reader.field()?;
-        let dna_offset = self.reader.tell()?;
-
-        Ok(SequenceRecord {
-            dna_offset,
-            dna_size,
-            n_blocks,
-            soft_mask_blocks,
-        })
     }
 
     fn chr_length(&mut self, chr: &str) -> Result<usize> {
@@ -406,45 +393,15 @@ impl<R: Reader> TwoBitFile<R> {
             None => Err(Error::MissingName(chr.to_string())),
         }
     }
-}
 
-fn replace_blocks<const HARD: bool>(seq: &mut Vec<u8>, seq_block: Block, blocks: &[Block]) {
-    let seq_block_end = seq_block.start + seq_block.length;
-    for block in blocks {
-        if block.start + seq_block.length <= seq_block.start {
-            continue;
-        }
-        if seq_block_end <= block.start {
-            break; // should be the last block assuming ordering is upheld
-        }
-        let mut range = block
-            .overlap(&seq_block)
-            .map_or_else(|| unsafe { core::hint::unreachable_unchecked() }, |r| r);
-        range.start -= seq_block.start as usize;
-        range.end -= seq_block.start as usize;
-        for i in range {
-            unsafe {
-                *seq.get_unchecked_mut(i) = if HARD {
-                    b'N'
-                } else {
-                    seq.get_unchecked(i).to_ascii_lowercase()
-                }
-            }
-        }
-    }
-}
-
-impl SequenceRecord {
-    fn sequence<R: Reader>(
-        &self,
-        reader: &mut ValueReader<R>,
-        start: usize,
-        end: usize,
-    ) -> Result<String> {
+    fn read_sequence(&mut self, chr: &str, start: usize, end: usize) -> Result<String> {
         const NUC: &[u8; 4] = b"TCAG";
 
+        let seq = self.sequences.query(chr)?;
+        let reader = &mut self.reader;
+
         let first_byte = start / 4;
-        reader.seek(SeekFrom::Start(u64::from(self.dna_offset)))?; // beginning of the DNA sequence
+        reader.seek(SeekFrom::Start(u64::from(seq.dna_offset)))?; // beginning of the DNA sequence
         reader.seek(SeekFrom::Current(first_byte as _))?; // position where we want to start reading
         if start >= end {
             return Ok(String::new()); // trivial case, empty return result
@@ -500,10 +457,38 @@ impl SequenceRecord {
         }
 
         let seq_block = Block::new(start as Field, length as Field);
-        replace_blocks::<true>(&mut out, seq_block, &self.n_blocks);
-        replace_blocks::<false>(&mut out, seq_block, &self.soft_mask_blocks);
+        replace_blocks::<true>(&mut out, seq_block, &seq.n_blocks);
+        if self.softmask_enabled {
+            replace_blocks::<false>(&mut out, seq_block, &seq.soft_mask_blocks);
+        }
 
         Ok(unsafe { String::from_utf8_unchecked(out) }) // we know it's ascii so it's ok
+    }
+}
+
+fn replace_blocks<const HARD: bool>(seq: &mut Vec<u8>, seq_block: Block, blocks: &[Block]) {
+    let seq_block_end = seq_block.start + seq_block.length;
+    for block in blocks {
+        if block.start + seq_block.length <= seq_block.start {
+            continue;
+        }
+        if seq_block_end <= block.start {
+            break; // should be the last block assuming ordering is upheld
+        }
+        let mut range = block
+            .overlap(&seq_block)
+            .map_or_else(|| unsafe { core::hint::unreachable_unchecked() }, |r| r);
+        range.start -= seq_block.start as usize;
+        range.end -= seq_block.start as usize;
+        for i in range {
+            unsafe {
+                *seq.get_unchecked_mut(i) = if HARD {
+                    b'N'
+                } else {
+                    seq.get_unchecked(i).to_ascii_lowercase()
+                }
+            }
+        }
     }
 }
 
