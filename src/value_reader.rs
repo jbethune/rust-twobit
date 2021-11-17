@@ -7,10 +7,16 @@ use std::path::Path;
 
 use crate::block::Block;
 use crate::error::{Error, Result};
-use crate::types::Field;
-use crate::{SequenceRecord, REV_SIGNATURE, SIGNATURE};
+use crate::SequenceRecord;
 
+// 2bit field type (uint32)
+pub type Field = u32;
+/// 2bit field size (4 bytes)
 const FIELD_SIZE: usize = size_of::<Field>();
+/// 2bit signature magic number
+const SIGNATURE: Field = 0x1A41_2743;
+/// 2bit signature magic number reversed
+const REV_SIGNATURE: Field = 0x4327_411A;
 
 pub trait Reader: Read + Seek {}
 

@@ -3,7 +3,7 @@
 use std::cmp::{max, min};
 use std::ops::Range;
 
-use crate::types::Field;
+use crate::value_reader::Field;
 
 /// A block mask for sequence regions
 ///

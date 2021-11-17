@@ -21,7 +21,6 @@
 pub mod block;
 pub mod counts;
 pub mod error;
-pub mod types;
 mod value_reader;
 
 use std::collections::HashMap;
@@ -34,14 +33,7 @@ use std::path::Path;
 use crate::block::Block;
 use crate::counts::{BaseCounts, BasePercentages};
 use crate::error::{Error, Result};
-use crate::types::Field;
 use crate::value_reader::{Reader, ValueReader};
-
-/// 2bit signature magic number
-const SIGNATURE: Field = 0x1A41_2743;
-
-/// 2bit signature magic number reversed
-const REV_SIGNATURE: Field = 0x4327_411A;
 
 /// Read data from a 2bit file
 ///
@@ -456,7 +448,7 @@ impl<R: Reader> TwoBitFile<R> {
             }
         }
 
-        let seq_block = Block::new(start as Field, length as Field);
+        let seq_block = Block::new(start as _, length as _);
         replace_blocks::<true>(&mut out, seq_block, &seq.blocks_n);
         if self.softmask_enabled {
             replace_blocks::<false>(&mut out, seq_block, &seq.blocks_soft_mask);
