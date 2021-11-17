@@ -416,21 +416,28 @@ mod tests {
     }
 
     #[test]
-    fn test_sequence() {
+    fn test_read_sequence() {
         run_test(true, |mut bit| {
-            let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATCGATCGTAGCTAGCTAGCTAGCTGATCNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".to_string();
-            assert_eq!(seq, bit.read_sequence("chr1", ..)?);
-            let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC";
-            assert_eq!(seq, bit.read_sequence("chr1", 24..74)?);
-            // let's try different offsets to test positions not divisible by 4
-            let seq = "ACGTACGTagctagctGATC";
-            assert_eq!(seq, bit.read_sequence("chr1", 54..74)?);
-            let seq = "CGTACGTagctagctGATC";
-            assert_eq!(seq, bit.read_sequence("chr1", 55..74)?);
-            let seq = "GTACGTagctagctGATC";
-            assert_eq!(seq, bit.read_sequence("chr1", 56..74)?); // divisible by 4
-            let seq = "TACGTagctagctGATC";
-            assert_eq!(seq, bit.read_sequence("chr1", 57..74)?);
+            let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATCGATCGTAGCTAGCTAGCTAGCTGATCNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN";
+            assert_eq!(bit.read_sequence("chr1", ..)?, seq);
+            let n = 12;
+            for start in 0..n {
+                for end_range in &[start..(start + n), (seq.len() - n)..seq.len()] {
+                    for end in end_range.clone() {
+                        if end > start {
+                            assert_eq!(bit.read_sequence("chr1", start..end)?, &seq[start..end]);
+                        }
+                        if end > 0 {
+                            assert_eq!(bit.read_sequence("chr1", ..end)?, &seq[..end]);
+                        }
+                        assert_eq!(bit.read_sequence("chr1", start..)?, &seq[start..]);
+                        if end < seq.len() {
+                            assert_eq!(bit.read_sequence("chr1", start..=end)?, &seq[start..=end]);
+                            assert_eq!(bit.read_sequence("chr1", ..=end)?, &seq[..=end]);
+                        }
+                    }
+                }
+            }
             Ok(())
         });
     }
