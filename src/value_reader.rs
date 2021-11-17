@@ -134,6 +134,11 @@ impl<R: Reader> ValueReader<R> {
     }
 
     #[inline]
+    pub fn fields(&mut self, n: usize) -> Result<Vec<Field>> {
+        (0..n).map(|_| self.field()).collect()
+    }
+
+    #[inline]
     pub fn string(&mut self, length: usize) -> Result<String> {
         let mut buf = vec![0_u8; length];
         self.reader.read_exact(&mut buf)?;
@@ -142,19 +147,13 @@ impl<R: Reader> ValueReader<R> {
 
     #[inline]
     pub fn blocks(&mut self) -> Result<Vec<Block>> {
-        let num_blocks = self.field()? as usize;
-        let mut result = Vec::with_capacity(num_blocks);
-        for _ in 0..num_blocks {
-            result.push(Block {
-                start: self.field()?,
-                length: 0, // will be assigned in the next loop
-            });
-        }
-
-        for block in &mut result {
-            block.length = self.field()?;
-        }
-        Ok(result)
+        let n = self.field()? as usize;
+        Ok(self
+            .fields(n)?
+            .iter()
+            .zip(&self.fields(n)?)
+            .map(|(&s, &l)| Block::new(s, l))
+            .collect())
     }
 
     pub(crate) fn sequence_record(&mut self) -> Result<SequenceRecord> {
