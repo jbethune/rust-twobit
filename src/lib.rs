@@ -31,7 +31,7 @@ use std::ops::{Bound, Deref, RangeBounds};
 use std::path::Path;
 
 use crate::block::{Block, Blocks};
-use crate::counts::{BaseCounts, BasePercentages};
+use crate::counts::BaseCounts;
 use crate::error::{Error, Result};
 use crate::value_reader::{Reader, ValueReader};
 
@@ -44,7 +44,7 @@ use crate::value_reader::{Reader, ValueReader};
 ///
 /// // softmask is disabled by default (see below for details)
 /// let mut tb = TwoBitFile::open("assets/foo.2bit").unwrap();
-/// let chromosome_lengths = tb.chroms();
+/// let chromosome_lengths = tb.chrom_sizes();
 /// assert_eq!(chromosome_lengths["chr1"], 150);
 /// assert_eq!(chromosome_lengths["chr2"], 100);
 /// ```
@@ -56,14 +56,14 @@ use crate::value_reader::{Reader, ValueReader};
 /// # use twobit::TwoBitFile;
 /// let mut tb_soft = TwoBitFile::open("assets/foo.2bit").unwrap().enable_softmask(true);
 /// let expected_seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC"; // some lower and some upper case
-/// assert_eq!(tb_soft.sequence("chr1", 24..74).unwrap(), expected_seq);
+/// assert_eq!(tb_soft.read_sequence("chr1", 24..74).unwrap(), expected_seq);
 /// ```
 /// It is not possible to disable hard masks but you can disable soft masks:
 /// ```
 /// # use twobit::TwoBitFile;
 /// let mut tb_nosoft = TwoBitFile::open("assets/foo.2bit").unwrap().enable_softmask(false);
 /// let expected_seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTAGCTAGCTGATC"; // all upper case
-/// assert_eq!(tb_nosoft.sequence("chr1", 24..74).unwrap(), expected_seq);
+/// assert_eq!(tb_nosoft.read_sequence("chr1", 24..74).unwrap(), expected_seq);
 /// ```
 ///
 /// Every sequence-related method accepts a range; to access the full sequence, pass `..`.
@@ -121,7 +121,7 @@ pub struct TwoBitFileInfo {
 }
 
 impl TwoBitFile<BufReader<File>> {
-    /// Open a 2bit file from a given file path.
+    /// Open a 2bit file from a given file path
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_value_reader(ValueReader::open(path)?)
     }
@@ -131,26 +131,26 @@ impl<T> TwoBitFile<Cursor<T>>
 where
     Cursor<T>: Reader,
 {
-    /// Open a 2bit file from a given in-memory buffer.
+    /// Open a 2bit file from a given in-memory buffer
     pub fn from_buf(buf: T) -> Result<Self> {
         Self::from_value_reader(ValueReader::from_buf(buf)?)
     }
 }
 
 impl TwoBitFile<Cursor<Vec<u8>>> {
-    /// Open a 2bit file from a given file path and read all of it into memory.
+    /// Open a 2bit file from a given file path and read all of it into memory
     pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_value_reader(ValueReader::open_and_read(path)?)
     }
 }
 
 impl<R: Reader> TwoBitFile<R> {
-    /// Open a 2bit file from a given generic reader (softmask is disabled by default).
+    /// Open a 2bit file from a given generic reader (softmask is disabled by default)
     pub fn new(reader: R) -> Result<Self> {
         Self::from_value_reader(ValueReader::new(reader)?)
     }
 
-    /// Box the reader (useful for type erasure if using multiple reader types).
+    /// Box the reader (useful for type erasure if using multiple reader types)
     pub fn boxed(self) -> BoxTwoBitFile
     where
         R: 'static,
@@ -199,47 +199,27 @@ impl<R: Reader> TwoBitFile<R> {
         })
     }
 
-    /// Get the sizes of chromosomes in a 2bit file as a `HashMap`
-    pub fn chroms(&mut self) -> HashMap<String, usize> {
+    /// Get the sizes of chromosomes as a `HashMap`
+    pub fn chrom_sizes(&mut self) -> HashMap<String, usize> {
         self.sequences
             .iter()
             .map(|(k, v)| (k.clone(), v.length))
             .collect()
     }
 
-    /// Count bases of a partial chromosome
+    /// Count bases in a partial sequence of a chromosome
     ///
-    /// * `chr` - Name of the chromosome from the 2bit file
+    /// * `chr` - Name of the chromosome
     /// * `range` - Selected range of the sequence (`..` for full sequence)
-    pub fn bases(&mut self, chr: &str, range: impl RangeBounds<usize>) -> Result<BaseCounts> {
-        let nucs = self.sequence(chr, range)?;
-        let mut result = BaseCounts::default();
-        for nuc in nucs.chars() {
-            match nuc {
-                'A' | 'a' => result.a += 1,
-                'C' | 'c' => result.c += 1,
-                'G' | 'g' => result.g += 1,
-                'T' | 't' => result.t += 1,
-                'N' => result.n += 1,
-                _ => return Err(Error::BadNucleotide(nuc)),
-            }
+    pub fn base_counts(&mut self, chr: &str, range: impl RangeBounds<usize>) -> Result<BaseCounts> {
+        let mut counts = BaseCounts::default();
+        for &nuc in self.read_sequence(chr, range)?.as_bytes() {
+            counts.update(nuc)?;
         }
-        Ok(result)
+        Ok(counts)
     }
 
-    /// Calculates percentages of bases of a partial chromosome
-    ///
-    /// * `chr` - Name of the chromosome from the 2bit file
-    /// * `range` - Selected range of the sequence (`..` for full sequence)
-    pub fn bases_percentages(
-        &mut self,
-        chr: &str,
-        range: impl RangeBounds<usize>,
-    ) -> Result<BasePercentages> {
-        Ok(self.bases(chr, range)?.into())
-    }
-
-    /// Obtain general information on the 2bit file you are dealing with
+    /// Obtain general information on the 2bit file
     pub fn info(&mut self) -> Result<TwoBitFileInfo> {
         let (total_length, hard_masks_count, soft_masks_count) =
             self.sequences.values().fold((0, 0, 0), |acc, seq| {
@@ -260,7 +240,7 @@ impl<R: Reader> TwoBitFile<R> {
 
     /// Get hard blocks (N-blocks) of a region on a chromosome
     ///
-    /// * `chr` - Name of the chromosome from the 2bit file
+    /// * `chr` - Name of the chromosome
     /// * `range` - Selected range of the sequence (`..` for full sequence)
     pub fn hard_masked_blocks(
         &mut self,
@@ -276,9 +256,9 @@ impl<R: Reader> TwoBitFile<R> {
             .collect())
     }
 
-    /// Get soft blocks (lower case blocks) of a region on a chromosome
+    /// Get soft blocks (lower case blocks) of a region of a chromosome
     ///
-    /// * `chr` - Name of the chromosome from the 2bit file
+    /// * `chr` - Name of the chromosome
     /// * `range` - Selected range of the sequence (`..` for full sequence)
     pub fn soft_masked_blocks(
         &mut self,
@@ -294,11 +274,11 @@ impl<R: Reader> TwoBitFile<R> {
             .collect())
     }
 
-    /// Get a partial sequence of a chromosome
+    /// Read a partial sequence of a chromosome
     ///
-    /// * `chr` - Name of the chromosome from the 2bit file
+    /// * `chr` - Name of the chromosome
     /// * `range` - Selected range of the sequence (`..` for full sequence)
-    pub fn sequence(&mut self, chr: &str, range: impl RangeBounds<usize>) -> Result<String> {
+    pub fn read_sequence(&mut self, chr: &str, range: impl RangeBounds<usize>) -> Result<String> {
         const NUC: &[u8; 4] = b"TCAG";
 
         let seq = self.sequences.query(chr)?;
@@ -383,7 +363,10 @@ impl<R: Reader> TwoBitFile<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::counts::BasePercentages;
+    use super::error::Result;
+    use super::value_reader::Reader;
+    use super::{BaseCounts, TwoBitFile, TwoBitFileInfo};
 
     const TESTFILE: &str = "assets/foo.2bit";
 
@@ -404,7 +387,7 @@ mod tests {
     fn test_chroms() {
         run_test(true, |mut bit| {
             let mut chr_count = 0;
-            for (chr, len) in bit.chroms() {
+            for (chr, len) in bit.chrom_sizes() {
                 match chr.as_ref() {
                     "chr1" => assert_eq!(len, 150),
                     "chr2" => assert_eq!(len, 100),
@@ -421,18 +404,18 @@ mod tests {
     fn test_sequence() {
         run_test(true, |mut bit| {
             let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATCGATCGTAGCTAGCTAGCTAGCTGATCNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN".to_string();
-            assert_eq!(seq, bit.sequence("chr1", ..)?);
+            assert_eq!(seq, bit.read_sequence("chr1", ..)?);
             let seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC";
-            assert_eq!(seq, bit.sequence("chr1", 24..74)?);
+            assert_eq!(seq, bit.read_sequence("chr1", 24..74)?);
             // let's try different offsets to test positions not divisible by 4
             let seq = "ACGTACGTagctagctGATC";
-            assert_eq!(seq, bit.sequence("chr1", 54..74)?);
+            assert_eq!(seq, bit.read_sequence("chr1", 54..74)?);
             let seq = "CGTACGTagctagctGATC";
-            assert_eq!(seq, bit.sequence("chr1", 55..74)?);
+            assert_eq!(seq, bit.read_sequence("chr1", 55..74)?);
             let seq = "GTACGTagctagctGATC";
-            assert_eq!(seq, bit.sequence("chr1", 56..74)?); // divisible by 4
+            assert_eq!(seq, bit.read_sequence("chr1", 56..74)?); // divisible by 4
             let seq = "TACGTagctagctGATC";
-            assert_eq!(seq, bit.sequence("chr1", 57..74)?);
+            assert_eq!(seq, bit.read_sequence("chr1", 57..74)?);
             Ok(())
         });
     }
@@ -454,8 +437,9 @@ mod tests {
                 g: 0.08666666666666667,
                 n: 100.0 / 150.0,
             };
-            assert_eq!(bit.bases("chr1", ..)?, full_counts);
-            assert_eq!(bit.bases_percentages("chr1", ..)?, full_percentages);
+            let c = bit.base_counts("chr1", ..)?;
+            assert_eq!(c, full_counts);
+            assert_eq!(c.percentages(), full_percentages);
 
             let partial_counts = BaseCounts {
                 a: 6,
@@ -471,8 +455,9 @@ mod tests {
                 g: 0.12,
                 n: 26.0 / 50.0,
             };
-            assert_eq!(bit.bases("chr1", 24..74)?, partial_counts);
-            assert_eq!(bit.bases_percentages("chr1", 24..74)?, partial_percentages);
+            let c = bit.base_counts("chr1", 24..74)?;
+            assert_eq!(c, partial_counts);
+            assert_eq!(c.percentages(), partial_percentages);
 
             Ok(())
         });
