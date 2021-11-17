@@ -30,7 +30,7 @@ use std::io::{BufReader, Cursor, SeekFrom};
 use std::ops::Deref;
 use std::path::Path;
 
-use crate::block::Block;
+use crate::block::{Block, Blocks};
 use crate::counts::{BaseCounts, BasePercentages};
 use crate::error::{Error, Result};
 use crate::value_reader::{Reader, ValueReader};
@@ -85,8 +85,8 @@ pub type BoxTwoBitFile = TwoBitFile<Box<dyn Reader>>;
 pub(crate) struct SequenceRecord {
     offset: u64,
     length: usize,
-    blocks_n: Vec<Block>,
-    blocks_soft_mask: Vec<Block>,
+    blocks_n: Blocks,
+    blocks_soft_mask: Blocks,
 }
 
 // This wrapper is needed to avoid lifetime problems
@@ -117,7 +117,7 @@ pub struct TwoBitFileInfo {
     /// File size of the 2bit file
     pub file_size: u64,
     /// Number of chromosomes (or sequences) in the file
-    pub chromosomes: usize,
+    pub num_chromosomes: usize,
     /// Total number of nucleotides in the file
     pub total_sequence_length: usize,
     /// Number of hard masks
@@ -281,22 +281,17 @@ impl<R: Reader> TwoBitFile<R> {
 
     /// Obtain general information on the 2bit file you are dealing with
     pub fn info(&mut self) -> Result<TwoBitFileInfo> {
-        let mut total_length = 0;
-        let mut hard_masks_count = 0;
-        let mut soft_masks_count = 0;
-        for chr in &self.sequences.keys().cloned().collect::<Vec<_>>() {
-            total_length += self.chr_length(chr)?;
-            let record = self.sequences.query(chr)?;
-            hard_masks_count +=
-                record.blocks_n.iter().fold(0, |acc, blk| acc + blk.length) as usize;
-            soft_masks_count += record
-                .blocks_soft_mask
-                .iter()
-                .fold(0, |acc, blk| acc + blk.length) as usize;
-        }
+        let (total_length, hard_masks_count, soft_masks_count) =
+            self.sequences.values().fold((0, 0, 0), |acc, seq| {
+                (
+                    acc.0 + seq.length,
+                    acc.1 + seq.blocks_n.count(),
+                    acc.2 + seq.blocks_soft_mask.count(),
+                )
+            });
         Ok(TwoBitFileInfo {
             file_size: self.reader.stream_len()?,
-            chromosomes: self.sequences.len(),
+            num_chromosomes: self.sequences.len(),
             total_sequence_length: total_length,
             hard_masks_count,
             soft_masks_count,
@@ -307,10 +302,7 @@ impl<R: Reader> TwoBitFile<R> {
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn full_hard_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>> {
-        match self.sequences.query(chr) {
-            Ok(record) => Ok(record.blocks_n.clone()),
-            Err(e) => Err(e),
-        }
+        self.sequences.query(chr).map(|seq| seq.blocks_n.to_vec())
     }
 
     /// Get hard blocks (N-blocks) of a region on a chromosome
@@ -322,33 +314,22 @@ impl<R: Reader> TwoBitFile<R> {
         start: usize,
         end: usize,
     ) -> Result<Vec<Block>> {
-        match self.sequences.query(chr) {
-            Ok(record) => {
-                let mut result = Vec::new();
-                for block in &record.blocks_n {
-                    let block_end = block.start + block.length;
-                    if block_end as usize <= start {
-                        continue;
-                    }
-                    if block.start as usize > end {
-                        break;
-                    }
-                    result.push(*block);
-                }
-                Ok(result)
-            }
-            Err(e) => Err(e),
-        }
+        Ok(self
+            .sequences
+            .query(chr)?
+            .blocks_n
+            .iter_overlaps(start..end)
+            .cloned()
+            .collect())
     }
 
     /// Get all soft blocks (lower case blocks) of a chromosome
     ///
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn full_soft_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>> {
-        match self.sequences.query(chr) {
-            Ok(record) => Ok(record.blocks_soft_mask.clone()),
-            Err(e) => Err(e),
-        }
+        self.sequences
+            .query(chr)
+            .map(|seq| seq.blocks_soft_mask.to_vec())
     }
 
     /// Get soft blocks (lower case blocks) of a region on a chromosome
@@ -360,23 +341,13 @@ impl<R: Reader> TwoBitFile<R> {
         start: usize,
         end: usize,
     ) -> Result<Vec<Block>> {
-        match self.sequences.query(chr) {
-            Ok(record) => {
-                let mut result = Vec::new();
-                for block in &record.blocks_soft_mask {
-                    let block_end = block.start + block.length;
-                    if block_end as usize <= start {
-                        continue;
-                    }
-                    if block.start as usize > end {
-                        break;
-                    }
-                    result.push(*block);
-                }
-                Ok(result)
-            }
-            Err(e) => Err(e),
-        }
+        Ok(self
+            .sequences
+            .query(chr)?
+            .blocks_soft_mask
+            .iter_overlaps(start..end)
+            .cloned()
+            .collect())
     }
 
     fn chr_length(&mut self, chr: &str) -> Result<usize> {
@@ -448,39 +419,13 @@ impl<R: Reader> TwoBitFile<R> {
             }
         }
 
-        let seq_block = Block::new(start as _, length as _);
-        replace_blocks::<true>(&mut out, seq_block, &seq.blocks_n);
+        seq.blocks_n.apply_masks::<true>(&mut out, start..end);
         if self.softmask_enabled {
-            replace_blocks::<false>(&mut out, seq_block, &seq.blocks_soft_mask);
+            seq.blocks_soft_mask
+                .apply_masks::<false>(&mut out, start..end);
         }
 
         Ok(unsafe { String::from_utf8_unchecked(out) }) // we know it's ascii so it's ok
-    }
-}
-
-fn replace_blocks<const HARD: bool>(seq: &mut Vec<u8>, seq_block: Block, blocks: &[Block]) {
-    let seq_block_end = seq_block.start + seq_block.length;
-    for block in blocks {
-        if block.start + seq_block.length <= seq_block.start {
-            continue;
-        }
-        if seq_block_end <= block.start {
-            break; // should be the last block assuming ordering is upheld
-        }
-        let mut range = block
-            .overlap(&seq_block)
-            .map_or_else(|| unsafe { core::hint::unreachable_unchecked() }, |r| r);
-        range.start -= seq_block.start as usize;
-        range.end -= seq_block.start as usize;
-        for i in range {
-            unsafe {
-                *seq.get_unchecked_mut(i) = if HARD {
-                    b'N'
-                } else {
-                    seq.get_unchecked(i).to_ascii_lowercase()
-                }
-            }
-        }
     }
 }
 
@@ -590,7 +535,7 @@ mod tests {
         run_test(true, |mut bit| {
             let info = TwoBitFileInfo {
                 file_size: 161,
-                chromosomes: 2,
+                num_chromosomes: 2,
                 total_sequence_length: 250,
                 hard_masks_count: 150,
                 soft_masks_count: 8,
@@ -603,22 +548,7 @@ mod tests {
     #[test]
     fn test_hard_masked_blocks() {
         run_test(true, |mut bit| {
-            let mut i = 0;
-            for block in bit.full_hard_masked_blocks("chr1")? {
-                match i {
-                    0 => {
-                        assert_eq!(block.start, 0);
-                        assert_eq!(block.length, 50);
-                    }
-                    1 => {
-                        assert_eq!(block.start, 100);
-                        assert_eq!(block.length, 50);
-                    }
-                    _ => assert!(false),
-                }
-                i += 1
-            }
-            assert_eq!(2, i);
+            assert_eq!(bit.full_hard_masked_blocks("chr1")?, vec![0..50, 100..150]);
             //TODO hard_masked_blocks()
             Ok(())
         });
@@ -627,18 +557,7 @@ mod tests {
     #[test]
     fn test_soft_masked_blocks() {
         run_test(true, |mut bit| {
-            let mut i = 0;
-            for block in bit.full_soft_masked_blocks("chr1")? {
-                match i {
-                    0 => {
-                        assert_eq!(block.start, 62);
-                        assert_eq!(block.length, 8);
-                    }
-                    _ => assert!(false),
-                }
-                i += 1
-            }
-            assert_eq!(1, i);
+            assert_eq!(bit.full_soft_masked_blocks("chr1")?, vec![62..70]);
             //TODO soft_masked_blocks()
             Ok(())
         });

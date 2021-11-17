@@ -1,65 +1,53 @@
 //! Masking reqions of a sequence
 
-use std::cmp::{max, min};
-use std::ops::Range;
+use std::ops::{Deref, Range};
 
-use crate::value_reader::Field;
-
-/// A block mask for sequence regions
+/// Block mask for sequence regions
 ///
 /// Blocks are used to mark regions as soft-masked or hard-masked.
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub struct Block {
-    pub start: Field,
-    pub length: Field,
+pub type Block = Range<usize>;
+
+/// Sorted collection of block masks
+#[derive(Debug, Clone)]
+pub struct Blocks(pub Vec<Block>);
+
+impl Deref for Blocks {
+    type Target = [Block];
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
-impl Block {
-    /// Create a new block
-    #[must_use]
-    pub const fn new(start: Field, length: Field) -> Self {
-        Self { start, length }
+impl Blocks {
+    #[inline]
+    pub fn iter_overlaps(&self, range: Block) -> impl Iterator<Item = &Block> {
+        let (start, end) = (range.start, range.end);
+        self.iter()
+            .skip_while(move |block| block.end <= start)
+            .take_while(move |block| block.start < end)
     }
 
-    /// Determine an overlap with another block
-    ///
-    /// Convenience function to determine overlaps between sequence regions.
-    ///
-    /// Note: Blocks of the same type should usually not overlap in practise.
     #[must_use]
-    pub fn overlap(&self, other: &Self) -> Option<Range<usize>> {
-        let start = max(self.start, other.start);
-        let end = min(self.start + self.length, other.start + other.length);
-        if start < end {
-            Some(start as usize..end as usize)
-        } else {
-            None
+    pub fn count(&self) -> usize {
+        self.iter().fold(0, |acc, block| acc + block.len())
+    }
+
+    pub fn apply_masks<const HARD: bool>(&self, seq: &mut [u8], range: Block) {
+        let (start, end) = (range.start, range.end);
+        for block in self.iter_overlaps(range) {
+            let seq_start = start.max(block.start) - start;
+            let seq_end = end.min(block.end) - start;
+            for i in seq_start..seq_end {
+                unsafe {
+                    *seq.get_unchecked_mut(i) = if HARD {
+                        b'N'
+                    } else {
+                        seq.get_unchecked(i).to_ascii_lowercase()
+                    }
+                }
+            }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_overlap() {
-        let a = Block::new(5, 10);
-        let b = Block::new(10, 10);
-        let c = Block::new(15, 10);
-        let d = Block::new(100, 25);
-        let e = Block::new(90, 40);
-        assert_eq!(a.overlap(&b), Some(10..15));
-        assert_eq!(a.overlap(&c), None);
-        assert_eq!(b.overlap(&c), Some(15..20));
-        assert_eq!(a.overlap(&a), Some(5..15));
-        assert_eq!(a.overlap(&d), None);
-        assert_eq!(d.overlap(&a), None);
-        assert_eq!(d.overlap(&e), Some(100..125));
-        assert_eq!(e.overlap(&d), Some(100..125));
-        assert_eq!(
-            Block::new(67920552, 300000).overlap(&Block::new(67859142, 61415)),
-            Some(67920552..(67859142 + 61415))
-        );
     }
 }

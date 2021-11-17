@@ -5,7 +5,7 @@ use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 use std::mem::size_of;
 use std::path::Path;
 
-use crate::block::Block;
+use crate::block::Blocks;
 use crate::error::{Error, Result};
 use crate::SequenceRecord;
 
@@ -152,14 +152,15 @@ impl<R: Reader> ValueReader<R> {
     }
 
     #[inline]
-    pub fn blocks(&mut self) -> Result<Vec<Block>> {
+    pub fn blocks(&mut self) -> Result<Blocks> {
         let n = self.field()? as usize;
-        Ok(self
-            .fields(n)?
-            .iter()
-            .zip(&self.fields(n)?)
-            .map(|(&s, &l)| Block::new(s, l))
-            .collect())
+        Ok(Blocks(
+            self.fields(n)?
+                .iter()
+                .zip(&self.fields(n)?)
+                .map(|(&s, &l)| (s as usize)..((s + l) as usize))
+                .collect(),
+        ))
     }
 
     pub(crate) fn sequence_record(&mut self) -> Result<SequenceRecord> {
