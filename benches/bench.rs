@@ -10,7 +10,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
     c.bench_function("full_sequence", |b| {
         let mut tb = open_tb();
-        b.iter(|| black_box(tb.full_sequence("chr1").unwrap().len()))
+        b.iter(|| black_box(tb.sequence("chr1", ..).unwrap().len()))
     });
 }
 
