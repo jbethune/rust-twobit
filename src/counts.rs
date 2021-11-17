@@ -10,6 +10,13 @@ pub struct BaseCounts<T> {
     pub n: T,
 }
 
+impl<T> BaseCounts<T> {
+    #[allow(dead_code, clippy::many_single_char_names)]
+    pub(crate) const fn new(a: T, c: T, g: T, t: T, n: T) -> Self {
+        Self { a, c, g, t, n }
+    }
+}
+
 impl BaseCounts<usize> {
     #[must_use]
     pub const fn sum(&self) -> usize {

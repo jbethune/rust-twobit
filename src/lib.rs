@@ -438,38 +438,14 @@ mod tests {
     #[test]
     fn test_bases() {
         run_test(true, |mut bit| {
-            let full_counts = BaseCounts {
-                a: 12,
-                c: 12,
-                t: 13,
-                g: 13,
-                n: 100,
-            };
-            let full_percentages = BaseCounts {
-                a: 0.08,
-                c: 0.08,
-                t: 0.08666666666666667,
-                g: 0.08666666666666667,
-                n: 100.0 / 150.0,
-            };
+            let full_counts = BaseCounts::new(12, 12, 13, 13, 100);
+            let full_percentages = BaseCounts::new(0.08, 0.08, 13. / 150., 13. / 150., 100. / 150.);
             let c = bit.base_counts("chr1", ..)?;
             assert_eq!(c, full_counts);
             assert_eq!(c.percentages(), full_percentages);
 
-            let partial_counts = BaseCounts {
-                a: 6,
-                c: 6,
-                t: 6,
-                g: 6,
-                n: 26,
-            };
-            let partial_percentages = BaseCounts {
-                a: 0.12,
-                c: 0.12,
-                t: 0.12,
-                g: 0.12,
-                n: 26.0 / 50.0,
-            };
+            let partial_counts = BaseCounts::new(6, 6, 6, 6, 26);
+            let partial_percentages = BaseCounts::new(0.12, 0.12, 0.12, 0.12, 26. / 50.);
             let c = bit.base_counts("chr1", 24..74)?;
             assert_eq!(c, partial_counts);
             assert_eq!(c.percentages(), partial_percentages);
