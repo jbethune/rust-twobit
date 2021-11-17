@@ -193,7 +193,7 @@ fn slice_to_field(slice: [u8; FIELD_SIZE], swap_endian: bool) -> Field {
             result += Field::from(byte);
         }
     } else {
-        for byte in slice {
+        for byte in slice.iter().copied() {
             result <<= 8;
             result += Field::from(byte);
         }

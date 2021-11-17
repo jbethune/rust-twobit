@@ -21,8 +21,16 @@ impl Deref for Blocks {
 impl Blocks {
     #[inline]
     pub fn iter_overlaps(&self, range: impl RangeBounds<usize>) -> impl Iterator<Item = &Block> {
-        let start = range.start_bound().cloned();
-        let end = range.end_bound().cloned();
+        let clone_bound = |bound: Bound<&usize>| {
+            // stable in Rust 1.55 but not in 1.51
+            match bound {
+                Bound::Unbounded => Bound::Unbounded,
+                Bound::Included(x) => Bound::Included(*x),
+                Bound::Excluded(x) => Bound::Excluded(*x),
+            }
+        };
+        let start = clone_bound(range.start_bound());
+        let end = clone_bound(range.end_bound());
         self.iter()
             .skip_while(move |block| match start {
                 Bound::Included(v) => block.end <= v,
