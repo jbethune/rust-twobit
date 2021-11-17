@@ -108,6 +108,12 @@ pub struct TwoBitFile<R: Read + Seek> {
 /// A type alias for `TwoBitFile` with arbitrary boxed reader.
 pub type BoxTwoBitFile = TwoBitFile<Box<dyn Reader>>;
 
+/// A type alias for `TwoBitFile<_>` returned by `open()`.
+pub type TwoBitPhysicalFile = TwoBitFile<BufReader<File>>;
+
+/// A type alias for `TwoBitFile<_>` returned by `open_and_read()`.
+pub type TwoBitMemoryFile = TwoBitFile<Cursor<Vec<u8>>>;
+
 #[derive(Debug, Clone)]
 pub(crate) struct SequenceRecord {
     chr: String,
@@ -199,7 +205,7 @@ impl TwoBitFileInfo {
     }
 }
 
-impl TwoBitFile<BufReader<File>> {
+impl TwoBitPhysicalFile {
     /// Opens a 2bit file from a given file path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_value_reader(ValueReader::open(path)?)
@@ -216,7 +222,7 @@ where
     }
 }
 
-impl TwoBitFile<Cursor<Vec<u8>>> {
+impl TwoBitMemoryFile {
     /// Opens a 2bit file from a given file path and reads all of it into memory.
     pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_value_reader(ValueReader::open_and_read(path)?)
