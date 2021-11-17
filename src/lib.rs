@@ -328,7 +328,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
     }
 
     /// Returns sizes of all chromosomes.
-    pub fn chrom_sizes(&mut self) -> Vec<usize> {
+    pub fn chrom_sizes(&self) -> Vec<usize> {
         self.sequences.iter().map(|seq| seq.length).collect()
     }
 
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_chromosomes() {
-        run_test(true, |mut bit| {
+        run_test(true, |bit| {
             assert_eq!(bit.chromosomes(), vec!["chr1", "chr2"]);
             assert_eq!(bit.chrom_sizes(), vec![150, 100]);
             Ok(())
