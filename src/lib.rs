@@ -93,8 +93,8 @@ pub type BoxTwoBitFile = TwoBitFile<Box<dyn Reader>>;
 pub(crate) struct SequenceRecord {
     offset: u64,
     length: usize,
-    n_blocks: Vec<Block>,
-    soft_mask_blocks: Vec<Block>,
+    blocks_n: Vec<Block>,
+    blocks_soft_mask: Vec<Block>,
 }
 
 // This wrapper is needed to avoid lifetime problems
@@ -296,9 +296,9 @@ impl<R: Reader> TwoBitFile<R> {
             total_length += self.chr_length(chr)?;
             let record = self.sequences.query(chr)?;
             hard_masks_count +=
-                record.n_blocks.iter().fold(0, |acc, blk| acc + blk.length) as usize;
+                record.blocks_n.iter().fold(0, |acc, blk| acc + blk.length) as usize;
             soft_masks_count += record
-                .soft_mask_blocks
+                .blocks_soft_mask
                 .iter()
                 .fold(0, |acc, blk| acc + blk.length) as usize;
         }
@@ -316,7 +316,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn full_hard_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>> {
         match self.sequences.query(chr) {
-            Ok(record) => Ok(record.n_blocks.clone()),
+            Ok(record) => Ok(record.blocks_n.clone()),
             Err(e) => Err(e),
         }
     }
@@ -333,7 +333,7 @@ impl<R: Reader> TwoBitFile<R> {
         match self.sequences.query(chr) {
             Ok(record) => {
                 let mut result = Vec::new();
-                for block in &record.n_blocks {
+                for block in &record.blocks_n {
                     let block_end = block.start + block.length;
                     if block_end as usize <= start {
                         continue;
@@ -354,7 +354,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// * `chr` Name of the chromosome from the 2bit file
     pub fn full_soft_masked_blocks(&mut self, chr: &str) -> Result<Vec<Block>> {
         match self.sequences.query(chr) {
-            Ok(record) => Ok(record.soft_mask_blocks.clone()),
+            Ok(record) => Ok(record.blocks_soft_mask.clone()),
             Err(e) => Err(e),
         }
     }
@@ -371,7 +371,7 @@ impl<R: Reader> TwoBitFile<R> {
         match self.sequences.query(chr) {
             Ok(record) => {
                 let mut result = Vec::new();
-                for block in &record.soft_mask_blocks {
+                for block in &record.blocks_soft_mask {
                     let block_end = block.start + block.length;
                     if block_end as usize <= start {
                         continue;
@@ -457,9 +457,9 @@ impl<R: Reader> TwoBitFile<R> {
         }
 
         let seq_block = Block::new(start as Field, length as Field);
-        replace_blocks::<true>(&mut out, seq_block, &seq.n_blocks);
+        replace_blocks::<true>(&mut out, seq_block, &seq.blocks_n);
         if self.softmask_enabled {
-            replace_blocks::<false>(&mut out, seq_block, &seq.soft_mask_blocks);
+            replace_blocks::<false>(&mut out, seq_block, &seq.blocks_soft_mask);
         }
 
         Ok(unsafe { String::from_utf8_unchecked(out) }) // we know it's ascii so it's ok

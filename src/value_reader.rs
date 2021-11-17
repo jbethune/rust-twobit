@@ -159,16 +159,16 @@ impl<R: Reader> ValueReader<R> {
 
     pub(crate) fn sequence_record(&mut self) -> Result<SequenceRecord> {
         let length = self.field()? as usize;
-        let n_blocks = self.blocks()?;
-        let soft_mask_blocks = self.blocks()?;
+        let blocks_n = self.blocks()?;
+        let blocks_soft_mask = self.blocks()?;
         let _reserved = self.field()?;
         let offset = self.tell()?;
 
         Ok(SequenceRecord {
             offset,
             length,
-            n_blocks,
-            soft_mask_blocks,
+            blocks_n,
+            blocks_soft_mask,
         })
     }
 }
