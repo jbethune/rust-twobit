@@ -124,7 +124,7 @@ pub struct TwoBitFileInfo {
 }
 
 impl TwoBitFileInfo {
-    pub(crate) fn new(file_size: u64) -> Self {
+    pub(crate) const fn new(file_size: u64) -> Self {
         Self {
             file_size,
             num_chromosomes: 0,
