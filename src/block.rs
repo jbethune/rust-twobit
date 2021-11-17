@@ -1,5 +1,3 @@
-//! Masking reqions of a sequence
-
 use std::ops::{Bound, Deref, Range, RangeBounds};
 
 /// Block mask for sequence regions

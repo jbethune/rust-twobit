@@ -1,9 +1,8 @@
-//! Error handling and descriptions
-
 use std::fmt;
 use std::io;
 use std::string::FromUtf8Error;
 
+/// An error that may occur while reading and parsing a 2bit file.
 #[derive(Debug)]
 pub enum Error {
     /// IO problems
@@ -44,4 +43,5 @@ impl From<FromUtf8Error> for Error {
     }
 }
 
+/// A type alias for `Result<T, twobit::Error>`.
 pub type Result<T> = std::result::Result<T, Error>;

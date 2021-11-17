@@ -1,10 +1,6 @@
-//! Count information on sequences
-//!
-//! This module makes no assumptions about softmasked sequences. An "t" is the same as a "T".
-
 use crate::error::{Error, Result};
 
-/// Number of bases of each type in a sequence
+/// Number or percentage of bases of each type in a sequence.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BaseCounts {
     pub a: usize,

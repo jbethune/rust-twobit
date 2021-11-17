@@ -26,7 +26,7 @@ mod value_reader;
 use std::collections::HashMap;
 use std::default::Default;
 use std::fs::File;
-use std::io::{BufReader, Cursor, SeekFrom};
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 use std::ops::{Bound, Deref, RangeBounds};
 use std::path::Path;
 
@@ -67,12 +67,13 @@ use crate::value_reader::{Reader, ValueReader};
 /// ```
 ///
 /// Every sequence-related method accepts a range; to access the full sequence, pass `..`.
-pub struct TwoBitFile<R: Reader> {
+pub struct TwoBitFile<R: Read + Seek> {
     reader: ValueReader<R>,
     sequences: SequenceRecords,
     softmask_enabled: bool,
 }
 
+/// A type alias for `TwoBitFile` with arbitrary boxed reader.
 pub type BoxTwoBitFile = TwoBitFile<Box<dyn Reader>>;
 
 #[derive(Debug, Clone)]
@@ -105,14 +106,14 @@ impl Deref for SequenceRecords {
     }
 }
 
-/// General information about a 2bit file
-#[derive(Debug, PartialEq)]
+/// Summary information about a 2bit file.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TwoBitFileInfo {
-    /// File size of the 2bit file
+    /// File size in bytes.
     pub file_size: u64,
-    /// Number of chromosomes (or sequences) in the file
+    /// Number of chromosomes or sequences.
     pub num_chromosomes: usize,
-    /// Total number of nucleotides in the file
+    /// Total number of nucleotides over all sequences.
     pub total_sequence_length: usize,
     /// Number of hard masks
     pub hard_masks_count: usize,
@@ -121,7 +122,7 @@ pub struct TwoBitFileInfo {
 }
 
 impl TwoBitFile<BufReader<File>> {
-    /// Open a 2bit file from a given file path
+    /// Opens a 2bit file from a given file path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_value_reader(ValueReader::open(path)?)
     }
@@ -131,26 +132,28 @@ impl<T> TwoBitFile<Cursor<T>>
 where
     Cursor<T>: Reader,
 {
-    /// Open a 2bit file from a given in-memory buffer
+    /// Opens a 2bit file from a given in-memory buffer.
     pub fn from_buf(buf: T) -> Result<Self> {
         Self::from_value_reader(ValueReader::from_buf(buf)?)
     }
 }
 
 impl TwoBitFile<Cursor<Vec<u8>>> {
-    /// Open a 2bit file from a given file path and read all of it into memory
+    /// Opens a 2bit file from a given file path and reads all of it into memory.
     pub fn open_and_read<P: AsRef<Path>>(path: P) -> Result<Self> {
         Self::from_value_reader(ValueReader::open_and_read(path)?)
     }
 }
 
-impl<R: Reader> TwoBitFile<R> {
-    /// Open a 2bit file from a given generic reader (softmask is disabled by default)
+impl<R: Read + Seek> TwoBitFile<R> {
+    /// Creates a 2bit file reader from a given generic reader.
     pub fn new(reader: R) -> Result<Self> {
         Self::from_value_reader(ValueReader::new(reader)?)
     }
 
-    /// Box the reader (useful for type erasure if using multiple reader types)
+    /// Returns a file handles with a boxed internal reader.
+    ///
+    /// This is useful for cases when the exact reader type needs to be erased.
     pub fn boxed(self) -> BoxTwoBitFile
     where
         R: 'static,
@@ -162,7 +165,9 @@ impl<R: Reader> TwoBitFile<R> {
         }
     }
 
-    /// Enable/disable softmask: if enabled, return lower case nucleotides for soft blocks.
+    /// Enables or disables soft masks.
+    ///
+    /// If enabled, lower case nucleotides are returned for soft blocks.
     ///
     /// Note: this option is disabled by default.
     #[must_use]
