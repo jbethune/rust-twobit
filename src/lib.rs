@@ -34,7 +34,7 @@ use std::path::Path;
 use crate::block::Block;
 use crate::counts::{BaseCounts, BasePercentages};
 use crate::error::{Error, Result};
-use crate::types::{Field, FileIndex};
+use crate::types::Field;
 use crate::value_reader::{Reader, ValueReader};
 
 /// 2bit signature magic number
@@ -91,8 +91,8 @@ pub type BoxTwoBitFile = TwoBitFile<Box<dyn Reader>>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SequenceRecord {
-    dna_offset: FileIndex,
-    dna_size: Field,
+    offset: u64,
+    length: usize,
     n_blocks: Vec<Block>,
     soft_mask_blocks: Vec<Block>,
 }
@@ -198,11 +198,11 @@ impl<R: Reader> TwoBitFile<R> {
         for _ in 0..sequence_count {
             let name_size = reader.byte()? as usize;
             let name = reader.string(name_size)?;
-            let seq_offset = reader.field()?;
+            let seq_offset = u64::from(reader.field()?);
             let offset = reader.tell()?;
-            reader.seek(SeekFrom::Start(u64::from(seq_offset)))?;
+            reader.seek(SeekFrom::Start(seq_offset))?;
             let seq_record = reader.sequence_record()?;
-            reader.seek(SeekFrom::Start(u64::from(offset)))?;
+            reader.seek(SeekFrom::Start(offset))?;
             sequences.insert(name, seq_record);
         }
 
@@ -214,10 +214,10 @@ impl<R: Reader> TwoBitFile<R> {
     }
 
     /// Get the sizes of chromosomes in a 2bit file as a `HashMap`
-    pub fn chroms(&mut self) -> HashMap<String, Field> {
+    pub fn chroms(&mut self) -> HashMap<String, usize> {
         self.sequences
             .iter()
-            .map(|(k, v)| (k.clone(), v.dna_size))
+            .map(|(k, v)| (k.clone(), v.length))
             .collect()
     }
 
@@ -226,7 +226,7 @@ impl<R: Reader> TwoBitFile<R> {
     /// * `chr` Name of the chromosome from the 2bit file
     /// * returns the full sequence as a `String` on success
     pub fn full_sequence(&mut self, chr: &str) -> Result<String> {
-        let dna_size = self.sequences.query(chr)?.dna_size;
+        let dna_size = self.sequences.query(chr)?.length;
         self.read_sequence(chr, 0, dna_size as _)
     }
 
@@ -401,7 +401,7 @@ impl<R: Reader> TwoBitFile<R> {
         let reader = &mut self.reader;
 
         let first_byte = start / 4;
-        reader.seek(SeekFrom::Start(u64::from(seq.dna_offset)))?; // beginning of the DNA sequence
+        reader.seek(SeekFrom::Start(seq.offset))?; // beginning of the DNA sequence
         reader.seek(SeekFrom::Current(first_byte as _))?; // position where we want to start reading
         if start >= end {
             return Ok(String::new()); // trivial case, empty return result

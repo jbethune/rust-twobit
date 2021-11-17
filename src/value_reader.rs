@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crate::block::Block;
 use crate::error::{Error, Result};
-use crate::types::{Field, FileIndex};
+use crate::types::Field;
 use crate::{SequenceRecord, REV_SIGNATURE, SIGNATURE};
 
 const FIELD_SIZE: usize = size_of::<Field>();
@@ -91,8 +91,8 @@ impl<R: Reader> ValueReader<R> {
     }
 
     #[inline]
-    pub fn seek(&mut self, pos: SeekFrom) -> Result<FileIndex> {
-        Ok(self.reader.seek(pos)? as _)
+    pub fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+        Ok(self.reader.seek(pos)?)
     }
 
     #[inline]
@@ -102,8 +102,8 @@ impl<R: Reader> ValueReader<R> {
     }
 
     #[inline]
-    pub fn tell(&mut self) -> Result<FileIndex> {
-        Ok(self.reader.seek(SeekFrom::Current(0))? as _)
+    pub fn tell(&mut self) -> Result<u64> {
+        Ok(self.reader.seek(SeekFrom::Current(0))?)
     }
 
     #[inline]
@@ -158,15 +158,15 @@ impl<R: Reader> ValueReader<R> {
     }
 
     pub(crate) fn sequence_record(&mut self) -> Result<SequenceRecord> {
-        let dna_size = self.field()?;
+        let length = self.field()? as usize;
         let n_blocks = self.blocks()?;
         let soft_mask_blocks = self.blocks()?;
         let _reserved = self.field()?;
-        let dna_offset = self.tell()?;
+        let offset = self.tell()?;
 
         Ok(SequenceRecord {
-            dna_offset,
-            dna_size,
+            offset,
+            length,
             n_blocks,
             soft_mask_blocks,
         })
