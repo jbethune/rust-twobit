@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crate::block::Blocks;
 use crate::error::{Error, Result};
-use crate::SequenceRecord;
+use crate::{SequenceRecord, SequenceRecords};
 
 // 2bit field type (uint32)
 pub type Field = u32;
@@ -84,7 +84,6 @@ impl<R: Reader> ValueReader<R> {
         }
     }
 
-    /// Box the reader (useful for type erasure if using multiple reader types).
     pub fn boxed(self) -> BoxValueReader
     where
         R: 'static,
@@ -102,17 +101,12 @@ impl<R: Reader> ValueReader<R> {
     }
 
     #[inline]
-    pub fn seek_start(&mut self) -> Result<()> {
-        self.seek(SeekFrom::Start(2 * size_of::<Field>() as u64))?;
-        Ok(())
+    pub fn byte(&mut self) -> Result<u8> {
+        let mut buf: [u8; 1] = [0; 1];
+        self.reader.read_exact(&mut buf)?;
+        Ok(buf[0])
     }
 
-    #[inline]
-    pub fn tell(&mut self) -> Result<u64> {
-        Ok(self.reader.seek(SeekFrom::Current(0))?)
-    }
-
-    #[inline]
     pub fn stream_len(&mut self) -> Result<u64> {
         // borrowed from unstable Seek method in stdlib
         let old_pos = self.reader.stream_position()?;
@@ -125,34 +119,27 @@ impl<R: Reader> ValueReader<R> {
         Ok(len)
     }
 
-    #[inline]
-    pub fn byte(&mut self) -> Result<u8> {
-        let mut buf: [u8; 1] = [0; 1];
-        self.reader.read_exact(&mut buf)?;
-        Ok(buf[0])
+    fn tell(&mut self) -> Result<u64> {
+        Ok(self.reader.seek(SeekFrom::Current(0))?)
     }
 
-    #[inline]
-    pub fn field(&mut self) -> Result<Field> {
+    fn field(&mut self) -> Result<Field> {
         let mut field: [u8; FIELD_SIZE] = [0; FIELD_SIZE];
         self.reader.read_exact(&mut field)?;
         Ok(slice_to_field(field, self.swap_endian))
     }
 
-    #[inline]
-    pub fn fields(&mut self, n: usize) -> Result<Vec<Field>> {
+    fn fields(&mut self, n: usize) -> Result<Vec<Field>> {
         (0..n).map(|_| self.field()).collect()
     }
 
-    #[inline]
-    pub fn string(&mut self, length: usize) -> Result<String> {
+    fn string(&mut self, length: usize) -> Result<String> {
         let mut buf = vec![0_u8; length];
         self.reader.read_exact(&mut buf)?;
         Ok(String::from_utf8(buf)?)
     }
 
-    #[inline]
-    pub fn blocks(&mut self) -> Result<Blocks> {
+    fn blocks(&mut self) -> Result<Blocks> {
         let n = self.field()? as usize;
         Ok(Blocks(
             self.fields(n)?
@@ -163,20 +150,38 @@ impl<R: Reader> ValueReader<R> {
         ))
     }
 
-    pub(crate) fn sequence_record(&mut self, chr: &str) -> Result<SequenceRecord> {
+    fn sequence_record(&mut self) -> Result<SequenceRecord> {
+        let chr_size = self.byte()? as usize;
+        let chr = self.string(chr_size)?;
+        let seq_offset = u64::from(self.field()?);
+        let backup_offset = self.tell()?;
+        self.seek(SeekFrom::Start(seq_offset))?;
         let length = self.field()? as usize;
         let blocks_n = self.blocks()?;
         let blocks_soft_mask = self.blocks()?;
         let _reserved = self.field()?;
         let offset = self.tell()?;
+        self.seek(SeekFrom::Start(backup_offset))?;
 
         Ok(SequenceRecord {
-            chr: chr.to_owned(),
+            chr,
             offset,
             length,
             blocks_n,
             blocks_soft_mask,
         })
+    }
+
+    pub(crate) fn sequence_records(&mut self) -> Result<SequenceRecords> {
+        self.seek(SeekFrom::Start(2 * size_of::<Field>() as u64))?; // rewind to start of file
+        let n_seq = self.field()?;
+        let _reserved = self.field(); // read the unused reserved field
+
+        Ok(SequenceRecords(
+            (0..n_seq)
+                .map(|_| self.sequence_record())
+                .collect::<Result<_>>()?,
+        ))
     }
 }
 

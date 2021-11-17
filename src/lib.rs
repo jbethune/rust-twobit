@@ -1,14 +1,77 @@
-//! Read 2bit files in Rust.
+//! The `twobit` crate provides an efficient 2bit file reader, implemented in pure Rust.
 //!
-//! This crate is inspired by <a href="https://github.com/deeptools/py2bit">py2bit</a> and tries to
-//! offer the same functionality. It is written from the ground up with no C-dependency. It follows
-//! the <a href="http://genome.ucsc.edu/FAQ/FAQformat.html#format7">2bit specification version
-//! 0</a>.
+//! # Brief overview
 //!
-//! Note that most methods perform IO operations and return a `Result` for that reason.
+//! This crate is inspired by [py2bit](https://github.com/deeptools/py2bit) and tries to
+//! offer somewhat similar functionality with no C-dependency, no external crate dependencies,
+//! and great performance. It follows
+//! [2 bit specification version 0](http://genome.ucsc.edu/FAQ/FAQformat.html#format7).
 //!
-//! The main entry point for users of this crate is the [`TwoBitFile`](struct.TwoBitFile.html)
-//! struct. Please see its documentation for details how to use this crate.
+//! The primary type in this crate is [`TwoBitFile`](struct.TwoBitFile.html), a wrapper around
+//! a generic IO reader that provides access to 2bit reading routines. Resulting nucleotide
+//! sequences are returned as `String`, but can be also handled as bytes since they are
+//! guaranteed to be pure ASCII.
+//!
+//! The set of errors is described by the [`Error`](struct.Error.html) type, with most methods
+//! returning results wrapped in [`Result`](type.Result.html) due to possible IO and format errors.
+//!
+//! # Examples
+//!
+//! ```
+//! use twobit::TwoBitFile;
+//!
+//! # || -> twobit::Result<()> {
+//! let mut tb = TwoBitFile::open("assets/foo.2bit")?;
+//! assert_eq!(tb.chrom_names(), &["chr1", "chr2"]);
+//! assert_eq!(tb.chrom_sizes(), &[150, 100]);
+//! let expected_seq = "NNACGTACGTACGTAGCTAGCTGATC";
+//! assert_eq!(tb.read_sequence("chr1", 48..74)?, expected_seq);
+//! # Ok(())
+//! # }();
+//! ```
+//!
+//! All sequence-related methods expect range argument; one can pass `..` (unbounded range)
+//! in order to query the entire sequence:
+//!
+//! ```
+//! # use twobit::TwoBitFile;
+//! # || -> twobit::Result<()> {
+//! # let mut tb = TwoBitFile::open("assets/foo.2bit")?;
+//! assert_eq!(tb.read_sequence("chr1", ..)?.len(), 150);
+//! # Ok(())
+//! # }();
+//! ```
+//!
+//! Files can be fully cached in memory in order to provide fast random access and avoid any
+//! IO operations when decoding:
+//!
+//! ```
+//! # use twobit::TwoBitFile;
+//! # || -> twobit::Result<()> {
+//! # let mut tb = TwoBitFile::open("assets/foo.2bit")?;
+//! let mut tb_mem = TwoBitFile::open_and_read("assets/foo.2bit")?;
+//! let expected_seq = tb.read_sequence("chr1", ..)?;
+//! assert_eq!(tb_mem.read_sequence("chr1", ..)?, expected_seq);
+//! # Ok(())
+//! # }();
+//! ```
+//!
+//! 2bit files offer two types of masks: N masks (aka hard masks) for unknown or arbitrary
+//! nucleotides, and soft masks for lower-case nucleotides (e.g. "t" instead of "T").
+//!
+//! Hard masks are *always enabled*; soft masks are *disabled by default*, but can be enabled
+//! manually:
+//!
+//! ```
+//! # use twobit::TwoBitFile;
+//! # || -> twobit::Result<()> {
+//! # let mut tb = TwoBitFile::open("assets/foo.2bit")?;
+//! let mut tb_soft = tb.enable_softmask(true);
+//! let expected_seq = "NNACGTACGTACGTagctagctGATC";
+//! assert_eq!(tb_soft.read_sequence("chr1", 48..74)?, expected_seq);
+//! # Ok(())
+//! # }();
+//! ```
 
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 #![allow(
@@ -36,36 +99,6 @@ pub use crate::counts::BaseCounts;
 pub use crate::error::{Error, Result};
 
 /// 2bit file reader, a wrapper around [`Read`](std::io::Read) + [`Seek`](std::io::Seek).
-///
-/// Usage:
-///
-/// ```
-/// use twobit::TwoBitFile;
-///
-/// // softmask is disabled by default (see below for details)
-/// let mut tb = TwoBitFile::open("assets/foo.2bit").unwrap();
-/// assert_eq!(tb.chromosomes(), &["chr1", "chr2"]);
-/// assert_eq!(tb.chrom_sizes(), &[150, 100]);
-/// ```
-///
-/// 2bit files offer two types of masks: N masks (aka hard masks) for unknown or arbitrary nucleotides
-/// and soft masks for lower-case nucleotides (e.g. "t" instead of "T").
-///
-/// ```
-/// # use twobit::TwoBitFile;
-/// let mut tb_soft = TwoBitFile::open("assets/foo.2bit").unwrap().enable_softmask(true);
-/// let expected_seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTagctagctGATC"; // some lower and some upper case
-/// assert_eq!(tb_soft.read_sequence("chr1", 24..74).unwrap(), expected_seq);
-/// ```
-/// It is not possible to disable hard masks but you can disable soft masks:
-/// ```
-/// # use twobit::TwoBitFile;
-/// let mut tb_nosoft = TwoBitFile::open("assets/foo.2bit").unwrap().enable_softmask(false);
-/// let expected_seq = "NNNNNNNNNNNNNNNNNNNNNNNNNNACGTACGTACGTAGCTAGCTGATC"; // all upper case
-/// assert_eq!(tb_nosoft.read_sequence("chr1", 24..74).unwrap(), expected_seq);
-/// ```
-///
-/// Every sequence-related method accepts a range; to access the full sequence, pass `..`.
 pub struct TwoBitFile<R: Read + Seek> {
     reader: ValueReader<R>,
     sequences: SequenceRecords,
@@ -86,7 +119,7 @@ pub(crate) struct SequenceRecord {
 
 // This wrapper is needed to avoid lifetime problems
 #[derive(Debug, Clone)]
-struct SequenceRecords(Vec<SequenceRecord>);
+pub(crate) struct SequenceRecords(Vec<SequenceRecord>);
 
 impl SequenceRecords {
     #[inline]
@@ -214,7 +247,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
     ///
     /// If enabled, lower case nucleotides are returned for soft blocks.
     ///
-    /// Note: this option is disabled by default.
+    /// Note: this option is *disabled by default*.
     #[must_use]
     pub fn enable_softmask(self, softmask_enabled: bool) -> Self {
         Self {
@@ -224,35 +257,18 @@ impl<R: Read + Seek> TwoBitFile<R> {
     }
 
     fn from_value_reader(mut reader: ValueReader<R>) -> Result<Self> {
-        reader.seek_start()?; // rewind to the start of the file, skipping the header
-
-        let mut sequences = vec![];
-
-        let sequence_count = reader.field()?;
-        let _reserved = reader.field(); // read the unused reserved field
-
-        for _ in 0..sequence_count {
-            let name_size = reader.byte()? as usize;
-            let name = reader.string(name_size)?;
-            let seq_offset = u64::from(reader.field()?);
-            let offset = reader.tell()?;
-            reader.seek(SeekFrom::Start(seq_offset))?;
-            let seq_record = reader.sequence_record(&name)?;
-            reader.seek(SeekFrom::Start(offset))?;
-            sequences.push(seq_record);
-        }
-
+        let sequences = reader.sequence_records()?;
         Ok(Self {
             reader,
-            sequences: SequenceRecords(sequences),
+            sequences,
             softmask_enabled: false,
         })
     }
 
     /// Reads a partial sequence of a chromosome.
     ///
-    /// * `chr` - Name of the chromosome
-    /// * `range` - Selected range of the sequence (`..` for full sequence)
+    /// * `chr` – name of the chromosome
+    /// * `range` – selected range of the sequence (`..` for full sequence)
     pub fn read_sequence(
         &mut self,
         chr: impl AsRef<str>,
@@ -361,10 +377,10 @@ impl<R: Read + Seek> TwoBitFile<R> {
         self.sequences.iter().map(|seq| seq.length).collect()
     }
 
-    /// Count bases in a partial sequence of a chromosome
+    /// Count bases in a partial sequence of a chromosome.
     ///
-    /// * `chr` - Name of the chromosome
-    /// * `range` - Selected range of the sequence (`..` for full sequence)
+    /// * `chr` – name of the chromosome
+    /// * `range` – selected range of the sequence (`..` for full sequence)
     pub fn base_counts(
         &mut self,
         chr: impl AsRef<str>,
@@ -377,10 +393,10 @@ impl<R: Read + Seek> TwoBitFile<R> {
         Ok(counts)
     }
 
-    /// Get hard blocks (N-blocks) of a region on a chromosome
+    /// Get hard blocks (N-blocks) of a region on a chromosome.
     ///
-    /// * `chr` - Name of the chromosome
-    /// * `range` - Selected range of the sequence (`..` for full sequence)
+    /// * `chr` – name of the chromosome
+    /// * `range` – selected range of the sequence (`..` for full sequence)
     pub fn hard_masked_blocks(
         &mut self,
         chr: impl AsRef<str>,
@@ -395,10 +411,10 @@ impl<R: Read + Seek> TwoBitFile<R> {
             .collect())
     }
 
-    /// Get soft blocks (lower case blocks) of a region of a chromosome
+    /// Get soft blocks (lower case blocks) of a region of a chromosome.
     ///
-    /// * `chr` - Name of the chromosome
-    /// * `range` - Selected range of the sequence (`..` for full sequence)
+    /// * `chr` – name of the chromosome
+    /// * `range` – selected range of the sequence (`..` for full sequence)
     pub fn soft_masked_blocks(
         &mut self,
         chr: impl AsRef<str>,
