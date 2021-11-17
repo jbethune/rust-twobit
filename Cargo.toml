@@ -1,15 +1,15 @@
 [package]
 name = "twobit"
 version = "0.1.2"
-authors = ["joern <joern@localhost>"]
+authors = ["joern <joern@localhost>", "Ivan Smirnov <rust@ivan.smirnov.ie>"]
 edition = "2018"
 readme = "README.md"
-repository = "https://github.com/jbethune/rust-twobit/"
+repository = "https://github.com/jbethune/rust-twobit"
 license = "MIT"
-keywords = [ "sequence", "gene", "genome", "twobit" ]
+keywords = ["sequence", "gene", "genome", "twobit", "2bit"]
 categories = ["science", "parsing"]
 description = "Pure Rust implementation of the TwoBit sequence file format"
-documentation = "https://docs.rs/twobit/"
+documentation = "https://docs.rs/twobit"
 
 [target.'cfg(bench)'.dev-dependencies]
 # to activate, pass RUSTFLAGS="--cfg bench" until cargo does this automatically
