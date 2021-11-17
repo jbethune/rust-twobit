@@ -1,3 +1,5 @@
+//! To run benchmarks, also pass RUSTFLAGS="--cfg bench" until cargo does this automatically.
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use twobit::TwoBitFile;
