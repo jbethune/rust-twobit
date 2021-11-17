@@ -352,7 +352,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
     }
 
     /// Returns names of all chromosomes.
-    pub fn chromosomes(&self) -> Vec<String> {
+    pub fn chrom_names(&self) -> Vec<String> {
         self.sequences.iter().map(|seq| seq.chr.clone()).collect()
     }
 
@@ -436,9 +436,9 @@ mod tests {
     }
 
     #[test]
-    fn test_chromosomes() {
+    fn test_chrom() {
         run_test(true, |bit| {
-            assert_eq!(bit.chromosomes(), vec!["chr1", "chr2"]);
+            assert_eq!(bit.chrom_names(), vec!["chr1", "chr2"]);
             assert_eq!(bit.chrom_sizes(), vec![150, 100]);
             Ok(())
         });
