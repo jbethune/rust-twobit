@@ -108,6 +108,30 @@ impl Deref for SequenceRecords {
     }
 }
 
+/// Information on a particular chromosome or sequence in a 2bit file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SequenceInfo {
+    /// Chromosome or sequence name
+    pub chr: String,
+    /// Number of nucleotides in the sequence
+    pub length: usize,
+    /// Total length of all hard masks
+    pub hard_masks_total_length: usize,
+    /// Total length of all hard masks
+    pub soft_masks_total_length: usize,
+}
+
+impl SequenceRecord {
+    pub fn info(&self) -> SequenceInfo {
+        SequenceInfo {
+            chr: self.chr.clone(),
+            length: self.length,
+            hard_masks_total_length: self.blocks_n.count(),
+            soft_masks_total_length: self.blocks_soft_mask.count(),
+        }
+    }
+}
+
 /// Summary information about a 2bit file.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TwoBitFileInfo {
@@ -322,6 +346,11 @@ impl<R: Read + Seek> TwoBitFile<R> {
         Ok(info)
     }
 
+    /// Obtain information on each sequence in the file.
+    pub fn sequence_info(&self) -> Vec<SequenceInfo> {
+        self.sequences.iter().map(SequenceRecord::info).collect()
+    }
+
     /// Returns names of all chromosomes.
     pub fn chromosomes(&self) -> Vec<String> {
         self.sequences.iter().map(|seq| seq.chr.clone()).collect()
@@ -389,7 +418,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
 mod tests {
     use super::error::Result;
     use super::reader::Reader;
-    use super::{BaseCounts, TwoBitFile, TwoBitFileInfo};
+    use super::{BaseCounts, SequenceInfo, TwoBitFile, TwoBitFileInfo};
 
     const TESTFILE: &str = "assets/foo.2bit";
 
@@ -411,6 +440,28 @@ mod tests {
         run_test(true, |bit| {
             assert_eq!(bit.chromosomes(), vec!["chr1", "chr2"]);
             assert_eq!(bit.chrom_sizes(), vec![150, 100]);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_sequence_info() {
+        run_test(true, |bit| {
+            let expected_info = vec![
+                SequenceInfo {
+                    chr: "chr1".to_owned(),
+                    length: 150,
+                    hard_masks_total_length: 100,
+                    soft_masks_total_length: 8,
+                },
+                SequenceInfo {
+                    chr: "chr2".to_owned(),
+                    length: 100,
+                    hard_masks_total_length: 50,
+                    soft_masks_total_length: 0,
+                },
+            ];
+            assert_eq!(bit.sequence_info(), expected_info);
             Ok(())
         });
     }
