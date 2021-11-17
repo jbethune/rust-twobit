@@ -21,7 +21,7 @@
 mod block;
 mod counts;
 mod error;
-mod value_reader;
+mod reader;
 
 use std::default::Default;
 use std::fs::File;
@@ -30,7 +30,7 @@ use std::ops::{Bound, Deref, RangeBounds};
 use std::path::Path;
 
 use crate::block::{Block, Blocks};
-use crate::value_reader::{Reader, ValueReader};
+use crate::reader::{Reader, ValueReader};
 
 pub use crate::counts::BaseCounts;
 pub use crate::error::{Error, Result};
@@ -388,7 +388,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
 #[cfg(test)]
 mod tests {
     use super::error::Result;
-    use super::value_reader::Reader;
+    use super::reader::Reader;
     use super::{BaseCounts, TwoBitFile, TwoBitFileInfo};
 
     const TESTFILE: &str = "assets/foo.2bit";
