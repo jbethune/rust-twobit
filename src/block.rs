@@ -1,6 +1,6 @@
 //! Masking reqions of a sequence
 
-use std::ops::{Deref, Range};
+use std::ops::{Bound, Deref, Range, RangeBounds};
 
 /// Block mask for sequence regions
 ///
@@ -22,11 +22,20 @@ impl Deref for Blocks {
 
 impl Blocks {
     #[inline]
-    pub fn iter_overlaps(&self, range: Block) -> impl Iterator<Item = &Block> {
-        let (start, end) = (range.start, range.end);
+    pub fn iter_overlaps(&self, range: impl RangeBounds<usize>) -> impl Iterator<Item = &Block> {
+        let start = range.start_bound().cloned();
+        let end = range.end_bound().cloned();
         self.iter()
-            .skip_while(move |block| block.end <= start)
-            .take_while(move |block| block.start < end)
+            .skip_while(move |block| match start {
+                Bound::Included(v) => block.end <= v,
+                Bound::Excluded(v) => block.end <= v + 1,
+                Bound::Unbounded => false,
+            })
+            .take_while(move |block| match end {
+                Bound::Included(v) => block.start < v + 1,
+                Bound::Excluded(v) => block.start < v,
+                Bound::Unbounded => true,
+            })
     }
 
     #[must_use]
