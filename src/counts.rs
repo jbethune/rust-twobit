@@ -2,23 +2,23 @@ use crate::error::{Error, Result};
 
 /// Number or percentage of bases of each type in a sequence.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct BaseCounts {
-    pub a: usize,
-    pub c: usize,
-    pub g: usize,
-    pub t: usize,
-    pub n: usize,
+pub struct BaseCounts<T> {
+    pub a: T,
+    pub c: T,
+    pub g: T,
+    pub t: T,
+    pub n: T,
 }
 
-impl BaseCounts {
+impl BaseCounts<usize> {
     #[must_use]
     pub const fn sum(&self) -> usize {
         self.a + self.c + self.g + self.t + self.n
     }
 
     #[must_use]
-    pub fn percentages(&self) -> BasePercentages {
-        let mut result = BasePercentages::default();
+    pub fn percentages(&self) -> BaseCounts<f64> {
+        let mut result = BaseCounts::default();
         let sum = self.sum() as f64;
         result.a = (self.a as f64) / sum;
         result.c = (self.c as f64) / sum;
@@ -30,6 +30,7 @@ impl BaseCounts {
 
     #[inline]
     pub(crate) fn update(&mut self, nuc: u8) -> Result<()> {
+        // no assumptions about softmasked sequences - "t" is the same as "T"
         match nuc {
             b'A' | b'a' => self.a += 1,
             b'C' | b'c' => self.c += 1,
@@ -42,18 +43,8 @@ impl BaseCounts {
     }
 }
 
-/// Percentages of bases of each type in a sequence
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct BasePercentages {
-    pub a: f64,
-    pub c: f64,
-    pub g: f64,
-    pub t: f64,
-    pub n: f64,
-}
-
-impl From<BaseCounts> for BasePercentages {
-    fn from(counts: BaseCounts) -> Self {
+impl From<BaseCounts<usize>> for BaseCounts<f64> {
+    fn from(counts: BaseCounts<usize>) -> Self {
         counts.percentages()
     }
 }
