@@ -412,7 +412,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
             .sequences
             .query(chr)?
             .blocks_n
-            .iter_overlaps(range)
+            .overlaps(range)
             .cloned()
             .collect())
     }
@@ -430,7 +430,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
             .sequences
             .query(chr)?
             .blocks_soft_mask
-            .iter_overlaps(range)
+            .overlaps(range)
             .cloned()
             .collect())
     }

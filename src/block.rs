@@ -20,7 +20,7 @@ impl Deref for Blocks {
 
 impl Blocks {
     #[inline]
-    pub fn iter_overlaps(&self, range: impl RangeBounds<usize>) -> impl Iterator<Item = &Block> {
+    pub fn overlaps(&self, range: impl RangeBounds<usize>) -> impl Iterator<Item = &Block> {
         let clone_bound = |bound: Bound<&usize>| {
             // stable in Rust 1.55 but not in 1.51
             match bound {
@@ -51,7 +51,7 @@ impl Blocks {
 
     pub fn apply_masks<const HARD: bool>(&self, seq: &mut [u8], range: Block) {
         let (start, end) = (range.start, range.end);
-        for block in self.iter_overlaps(range) {
+        for block in self.overlaps(range) {
             let seq_start = start.max(block.start) - start;
             let seq_end = end.min(block.end) - start;
             for i in seq_start..seq_end {
