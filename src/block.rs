@@ -54,18 +54,9 @@ impl Blocks {
         for block in self.overlaps(start..end) {
             let seq_start = start.max(block.start) - start;
             let seq_end = end.min(block.end) - start;
-            for i in seq_start..seq_end {
-                // Safe because:
-                // 1) i >= (seq_start - start) >= 0
-                // 2) i < (seq_end - start) <= (end - start) = seq.len()
-                unsafe {
-                    *seq.get_unchecked_mut(i) = if HARD {
-                        b'N'
-                    } else {
-                        seq.get_unchecked(i).to_ascii_lowercase()
-                    }
-                }
-            }
+            seq[seq_start..seq_end]
+                .iter_mut()
+                .for_each(|nuc| *nuc = if HARD { b'N' } else { nuc.to_ascii_lowercase() });
         }
     }
 }
