@@ -5,7 +5,7 @@ Efficient 2bit file reader, implemented in pure Rust.
 [![Build](https://github.com/jbethune/rust-twobit/workflows/CI/badge.svg)](https://github.com/jbethune/rust-twobit/actions?query=branch%3Amaster)
 [![Latest Version](https://img.shields.io/crates/v/twobit.svg)](https://crates.io/crates/twobit)
 [![Documentation](https://docs.rs/twobit/badge.svg)](https://docs.rs/twobit)
-![hdf5: rustc 1.51+](https://img.shields.io/badge/hdf5-rustc_1.51+-lightblue.svg)
+![twobit: rustc 1.51+](https://img.shields.io/badge/twobit-rustc_1.51+-lightblue.svg)
 [![MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 The [2bit file format](http://genome.ucsc.edu/FAQ/FAQformat.html#format7) is
