@@ -49,12 +49,15 @@ impl Blocks {
         self.iter().fold(0, |acc, block| acc + block.len())
     }
 
-    pub fn apply_masks<const HARD: bool>(&self, seq: &mut [u8], range: Block) {
-        let (start, end) = (range.start, range.end);
-        for block in self.overlaps(range) {
+    pub fn apply_masks<const HARD: bool>(&self, seq: &mut [u8], offset: usize) {
+        let (start, end) = (offset, offset + seq.len());
+        for block in self.overlaps(start..end) {
             let seq_start = start.max(block.start) - start;
             let seq_end = end.min(block.end) - start;
             for i in seq_start..seq_end {
+                // Safe because:
+                // 1) i >= (seq_start - start) >= 0
+                // 2) i < (seq_end - start) <= (end - start) = seq.len()
                 unsafe {
                     *seq.get_unchecked_mut(i) = if HARD {
                         b'N'

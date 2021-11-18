@@ -352,10 +352,9 @@ impl<R: Read + Seek> TwoBitFile<R> {
             }
         }
 
-        seq.blocks_n.apply_masks::<true>(&mut out, start..end);
+        seq.blocks_n.apply_masks::<true>(&mut out, start);
         if self.softmask_enabled {
-            seq.blocks_soft_mask
-                .apply_masks::<false>(&mut out, start..end);
+            seq.blocks_soft_mask.apply_masks::<false>(&mut out, start);
         }
 
         Ok(unsafe { String::from_utf8_unchecked(out) }) // we know it's ascii so it's ok
