@@ -84,6 +84,7 @@
 mod block;
 mod counts;
 mod error;
+mod quad;
 mod reader;
 
 use std::default::Default;
