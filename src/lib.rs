@@ -308,6 +308,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
         let length = end - start;
         let mut out = Vec::with_capacity(length);
         unsafe {
+            // Safe because the vector contains integers and we allocated capacity above
             out.set_len(length);
         }
 
