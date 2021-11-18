@@ -94,6 +94,7 @@ use std::ops::{Bound, Deref, RangeBounds};
 use std::path::Path;
 
 use crate::block::{Block, Blocks};
+use crate::quad::NUC_QUAD_LOOKUP;
 use crate::reader::{Reader, ValueReader};
 
 pub use crate::counts::BaseCounts;
@@ -312,44 +313,30 @@ impl<R: Read + Seek> TwoBitFile<R> {
 
         let last_byte = (end - 1) / 4; // inclusive (!) index, and here we know that end >= 1
         let skip_start = start % 4; // number of pairs to skip in the first byte
-        let partial_start = skip_start != 0;
 
-        let parse_byte =
-            |buf: &mut [u8], r: &mut ValueReader<_>, skip, take, shift| -> Result<()> {
-                let mut byte = r.byte()? << shift;
-                for v in buf.iter_mut().skip(skip).take(take) {
-                    *v = NUC[((byte & 192) >> 6) as usize];
-                    byte <<= 2;
-                }
-                Ok(())
-            };
+        let parse_byte = |buf: &mut [u8], mut byte: u8| {
+            for v in buf {
+                *v = NUC[((byte & 192) >> 6) as usize];
+                byte <<= 2;
+            }
+        };
 
         if first_byte == last_byte {
-            parse_byte(&mut out, reader, 0, length, skip_start * 2)?; // special case (single byte)
+            parse_byte(&mut out, reader.byte()? << (skip_start * 2)); // special case (single byte)
         } else {
             // most common case where the sequence is spread over 2 or more bytes
+            if skip_start != 0 {
+                parse_byte(
+                    &mut out[..4 - skip_start],
+                    reader.byte()? << (skip_start * 2),
+                );
+            }
+            for chunk in out[(4 - skip_start) % 4..].chunks_exact_mut(4) {
+                chunk.copy_from_slice(&NUC_QUAD_LOOKUP[reader.byte()? as usize]);
+            }
             let include_end = ((end - 1) % 4) + 1; // number of pairs to include in the last byte
-            let partial_end = include_end != 4;
-
-            if partial_start {
-                parse_byte(&mut out, reader, 0, 4 - skip_start, skip_start * 2)?;
-            }
-            let n_mid = (last_byte - first_byte + 1)
-                - usize::from(partial_start)
-                - usize::from(partial_end);
-            let mut pos = (4 - skip_start) % 4;
-            for _ in 0..n_mid {
-                let byte = reader.byte()? as usize;
-                unsafe {
-                    *out.get_unchecked_mut(pos) = NUC[(byte & 192) >> 6];
-                    *out.get_unchecked_mut(pos + 1) = NUC[(byte & 48) >> 4];
-                    *out.get_unchecked_mut(pos + 2) = NUC[(byte & 12) >> 2];
-                    *out.get_unchecked_mut(pos + 3) = NUC[byte & 3];
-                }
-                pos += 4;
-            }
-            if partial_end {
-                parse_byte(&mut out, reader, pos, include_end, 0)?;
+            if include_end != 4 {
+                parse_byte(&mut out[length - include_end..], reader.byte()?);
             }
         }
 
