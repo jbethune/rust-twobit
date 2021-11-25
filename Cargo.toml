@@ -1,15 +1,25 @@
 [package]
 name = "twobit"
-version = "0.1.2"
-authors = ["joern <joern@localhost>"]
+version = "0.2.0"
+authors = ["joern <joern@localhost>", "Ivan Smirnov <rust@ivan.smirnov.ie>"]
 edition = "2018"
 readme = "README.md"
-repository = "https://github.com/jbethune/rust-twobit/"
+repository = "https://github.com/jbethune/rust-twobit"
 license = "MIT"
-keywords = [ "sequence", "gene", "genome", "twobit" ]
+keywords = ["sequence", "gene", "genome", "twobit", "2bit"]
+categories = ["science", "parsing"]
 description = "Pure Rust implementation of the TwoBit sequence file format"
-documentation = "https://docs.rs/twobit/"
+documentation = "https://docs.rs/twobit"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[target.'cfg(bench)'.dev-dependencies]
+# to activate, pass RUSTFLAGS="--cfg bench" until cargo does this automatically
+criterion = "^0.3.5"
 
-[dependencies]
+[lib]
+name = "twobit"
+path = "src/lib.rs"
+bench = false
+
+[[bench]]
+name = "bench"
+harness = false
