@@ -305,7 +305,6 @@ mod tests {
     use super::*;
     const FASTA_FILE_DATA: &[u8] =
         b">name1\nNNNNAGTCGTcagtcGTCGTAGNNNNNNTCTACGTATgcgtcaNNNN\n>name2\nCATGCA\nACGTACGCAT";
-    // >name1nNNNNAGTCGTcagtcGTCGTAGNNNNNNTCTACGTATgcgtcaNNNNn>name2nCATGCAnACGTACGCAT
 
     #[test]
     fn test_parse_fasta_file() {
