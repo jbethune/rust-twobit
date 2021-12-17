@@ -315,11 +315,7 @@ impl<R: Read + Seek> TwoBitFile<R> {
         reader.seek(SeekFrom::Current(first_byte as _))?; // position where we want to start reading
 
         let length = end - start;
-        let mut out = Vec::with_capacity(length);
-        unsafe {
-            // Safe because the vector contains integers and we allocated capacity above
-            out.set_len(length);
-        }
+        let mut out = vec![0_u8; length];
 
         let last_byte = (end - 1) / 4; // inclusive (!) index, and here we know that end >= 1
         let skip_start = start % 4; // number of pairs to skip in the first byte
