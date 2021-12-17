@@ -14,7 +14,7 @@ pub type Field = u32;
 /// 2bit field size (4 bytes)
 const FIELD_SIZE: usize = size_of::<Field>();
 /// 2bit signature magic number
-const SIGNATURE: Field = 0x1A41_2743;
+pub const SIGNATURE: Field = 0x1A41_2743;
 /// 2bit signature magic number reversed
 const REV_SIGNATURE: Field = 0x4327_411A;
 
