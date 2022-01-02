@@ -6,12 +6,12 @@
 //! use std::fs::File;
 //! use std::io::BufWriter;
 //! use twobit::convert::fasta::FastaReader;
-//! use twobit::convert::to_2bit_file;
+//! use twobit::convert::to_2bit;
 //!
 //! let file = File::create("/tmp/my_genome.2bit").expect("doc-test");
 //! let mut writer = BufWriter::new(file);
 //! let fasta_sequences = FastaReader::open("assets/foo.fasta").expect("doc-test");
-//! to_2bit_file(&mut writer, &fasta_sequences).expect("doc-test");
+//! to_2bit(&mut writer, &fasta_sequences).expect("doc-test");
 //! // make sure that writer goes out of scope so that the file will be closed
 //!
 //! ```
@@ -63,7 +63,7 @@ impl SequenceLength {
 
 /// Trait for readers of other file formats
 ///
-/// This trait is used in the function [`to_2bit_file`](fn.to_2bit_file.html) to
+/// This trait is used in the function [`to_2bit`](fn.to_2bit.html) to
 /// retrieve the needed information to produce a 2bit file from another file format.
 ///
 /// The trait has several methods that return a `Cow`. This `Cow` wrapper is intended to give
@@ -101,7 +101,7 @@ pub trait Nucleotides {
 
 /// Convert and write data from a `SequenceRead` into a new 2bit file.
 #[allow(clippy::too_many_lines)]
-pub fn to_2bit_file<'a>(
+pub fn to_2bit<'a>(
     writer: &mut dyn Write,
     extractor: &'a (dyn SequenceRead<'a> + 'a),
 ) -> Result<()> {

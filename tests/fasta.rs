@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::io::Cursor;
 
 use twobit::convert::fasta::{to_fasta, FastaReader};
-use twobit::convert::to_2bit_file;
+use twobit::convert::to_2bit;
 use twobit::TwoBitFile;
 
 fn u64_to_usize(v: u64) -> usize {
@@ -18,7 +18,7 @@ fn fasta_to_twobit() {
     let fasta: Vec<u8> = data.as_bytes().into();
     let reader = FastaReader::mem_open(fasta).expect("testing");
     let mut out = Cursor::new(vec![]);
-    to_2bit_file(&mut out, &reader).expect("testing");
+    to_2bit(&mut out, &reader).expect("testing");
     let twobit_file_data: Vec<u8> = out.into_inner();
 
     let twobit = TwoBitFile::from_buf(twobit_file_data).expect("testing");
@@ -62,7 +62,7 @@ fn twobit_fasta_roundtrip() {
     let mut twobit_buf = Cursor::new(Vec::with_capacity(u64_to_usize(
         reader.info().expect("testing").file_size,
     )));
-    to_2bit_file(&mut twobit_buf, &mut fasta_reader).expect("testing");
+    to_2bit(&mut twobit_buf, &mut fasta_reader).expect("testing");
 
     // read the original file and compare the generated in-memory file byte by byte
     let original = std::fs::read("assets/foo.2bit").expect("testing");
