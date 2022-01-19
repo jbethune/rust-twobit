@@ -241,7 +241,7 @@ impl<'a> SequenceRead<'a> for FastaReader {
             }
         };
         if let Some(seek_to) = self.sequence_starts.get(chr) {
-            reader.seek(SeekFrom::Start(*seek_to)).unwrap();
+            reader.seek(SeekFrom::Start(*seek_to))?;
             Ok(Box::new(FastaNucleotides {
                 reader,
                 exhausted: false,
