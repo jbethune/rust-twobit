@@ -20,14 +20,13 @@
 //! the [`SequenceRead`](trait.SequenceRead.html) trait. If you want to convert other
 //! file formats to 2bit, you can use that trait to implement your own converters.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io::Write;
 use std::mem::size_of;
 
 use crate::block::Block;
-use crate::error::{Error, Result};
+use crate::error::Error;
 use crate::nucleotide::Nucleotide;
 use crate::reader::{Field, SIGNATURE};
 
@@ -66,19 +65,17 @@ impl SequenceLength {
 /// This trait is used in the function [`to_2bit`](fn.to_2bit.html) to
 /// retrieve the needed information to produce a 2bit file from another file format.
 ///
-/// The trait has several methods that return a `Cow`. This `Cow` wrapper is intended to give
-/// implementors the flexibility of either returning an owned or borrowed result.
-/// Depending on the underlying file format, calculating results on the fly might be more effective
-/// than returning a reference to a cached result.
+/// This trait uses generic `Err`s, so that implementors can use any error type
+/// they might need when they process data.
 pub trait SequenceRead<'a> {
     /// Return the names and lengths of the sequences (ideally in a stable order for reproducibility)
-    fn sequence_lengths(&'a self) -> Cow<'a, [SequenceLength]>;
+    fn sequence_lengths(&'a self) -> Result<&[SequenceLength], Box<dyn std::error::Error>>;
     /// Return pieces of the actual nucleotide sequence
-    fn nucleotides(&self, chr: &str) -> Box<dyn Nucleotides>;
+    fn nucleotides(&self, chr: &str) -> Result<Box<dyn Nucleotides>, Box<dyn std::error::Error>>;
     /// Return the soft masked blocks for a sequence
-    fn soft_masked_blocks(&'a self, chr: &str) -> Cow<'a, [Block]>;
+    fn soft_masked_blocks(&'a self, chr: &str) -> Result<&'a [Block], Box<dyn std::error::Error>>;
     /// Return the hard masked blocks for a sequence
-    fn hard_masked_blocks(&'a self, chr: &str) -> Cow<'a, [Block]>;
+    fn hard_masked_blocks(&'a self, chr: &str) -> Result<&'a [Block], Box<dyn std::error::Error>>;
 }
 
 /// Trait for providers of nucleotide sequence data.
@@ -104,8 +101,8 @@ pub trait Nucleotides {
 pub fn to_2bit<'a>(
     writer: &mut dyn Write,
     extractor: &'a (dyn SequenceRead<'a> + 'a),
-) -> Result<()> {
-    let seqs = extractor.sequence_lengths();
+) -> Result<(), Box<dyn std::error::Error>> {
+    let seqs = extractor.sequence_lengths()?;
 
     let signature: Field = SIGNATURE;
     let version: Field = 0;
@@ -128,18 +125,18 @@ pub fn to_2bit<'a>(
     for seq_length in seqs.iter() {
         let chr = &seq_length.name;
         if !chr.is_ascii() {
-            return Err(Error::FileFormat(format!(
+            return Err(Box::new(Error::FileFormat(format!(
                 "Chromosome name is not ASCII: {}",
                 &chr
-            )));
+            ))));
         }
 
         let addition_to_index: Field = usize2field(1 + chr.len() + FIELD_SIZE)?;
         index_size += addition_to_index;
         relative_sequence_offsets.insert(chr, sequence_records_size);
 
-        let hard_masked_blocks = extractor.hard_masked_blocks(chr);
-        let soft_masked_blocks = extractor.soft_masked_blocks(chr);
+        let hard_masked_blocks = extractor.hard_masked_blocks(chr)?;
+        let soft_masked_blocks = extractor.soft_masked_blocks(chr)?;
         let length: usize = seq_length.length;
         sequence_records_size += {
             let block_bytewidth = size_of::<u32>() * 2; // start & end
@@ -182,8 +179,8 @@ pub fn to_2bit<'a>(
         let length = seq_length.length;
         let length_field = (length as Field).to_ne_bytes();
         writer.write_all(&length_field)?; // dnaSize
-        write_blocks(writer, &extractor.hard_masked_blocks(chr))?;
-        write_blocks(writer, &extractor.soft_masked_blocks(chr))?;
+        write_blocks(writer, extractor.hard_masked_blocks(chr)?)?;
+        write_blocks(writer, extractor.soft_masked_blocks(chr)?)?;
         writer.write_all(&reserved.to_ne_bytes())?; // reserved
 
         // and finally packedDna
@@ -192,7 +189,7 @@ pub fn to_2bit<'a>(
         let mut byte: u8 = 0;
         let mut buf = [0_u8; 1];
         let mut sequence_length = 0;
-        let mut nucleotides = extractor.nucleotides(chr);
+        let mut nucleotides = extractor.nucleotides(chr)?;
         while let Some(num_nucleotides_read) = nucleotides
             .read_chunk(&mut data_buf)
             .map_err(|e| Error::FileFormat(e.to_string()))?
@@ -225,7 +222,7 @@ pub fn to_2bit<'a>(
                 "The reported sequence length of {} for sequence {} is wrong (seen {} nucleotides)",
                 length, chr, sequence_length,
             );
-            return Err(Error::FileFormat(msg));
+            return Err(Box::new(Error::FileFormat(msg)));
         }
     }
 
@@ -236,7 +233,7 @@ pub fn to_2bit<'a>(
 ///
 /// First write the number of blocks, then the start positions of each block and then the end
 /// positions of each block. Positions refer to the nucleotide sequence.
-fn write_blocks(writer: &mut dyn Write, blocks: &[Block]) -> Result<()> {
+fn write_blocks(writer: &mut dyn Write, blocks: &[Block]) -> Result<(), Error> {
     let num_blocks: Field = usize2field(blocks.len())?;
     writer.write_all(&num_blocks.to_ne_bytes())?;
     let mut block_lengths = Vec::with_capacity(&blocks.len() * 4); // 32 bit
@@ -257,7 +254,7 @@ fn write_blocks(writer: &mut dyn Write, blocks: &[Block]) -> Result<()> {
     Ok(())
 }
 
-fn usize2field(v: usize) -> Result<Field> {
+fn usize2field(v: usize) -> Result<Field, Error> {
     v.try_into()
         .map_err(|_| Error::FileFormat(format!("Number {} is too big to store in a 2bit Field", v)))
 }

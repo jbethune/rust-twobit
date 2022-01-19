@@ -4,7 +4,6 @@
 //! Just `ACGTacgtN` and `>header lines`. Soft blocks (lower case nucleotides)
 //! will be automatically detected.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fs::File;
@@ -13,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::block::Block;
 use crate::convert::{Nucleotides, SequenceLength, SequenceRead};
-use crate::error::{Error, Result};
+use crate::error::Error;
 use crate::nucleotide::Nucleotide;
 use crate::TwoBitFile;
 
@@ -31,11 +30,12 @@ pub struct FastaReader {
     hard_blocks: HashMap<String, Vec<Block>>,
     sequence_starts: HashMap<String, FilePos>,
     sequence_lengths: Vec<SequenceLength>,
+    empty_block_vec: Vec<Block>,
 }
 
 impl FastaReader {
     /// Read data from a Fasta file that is stored in a `Vec<u8>`.
-    pub fn mem_open(data: Vec<u8>) -> Result<Self> {
+    pub fn mem_open(data: Vec<u8>) -> Result<Self, Error> {
         let mut reader = Cursor::new(data);
         let mut result = Self::parse_fasta_file(&mut reader)?;
         result.in_memory_data = Some(reader);
@@ -43,7 +43,7 @@ impl FastaReader {
     }
 
     /// Open a Fasta file on disk
-    pub fn open<P: AsRef<Path>>(file_path: P) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(file_path: P) -> Result<Self, Error> {
         let fd = File::open(&file_path)?;
         let mut reader = BufReader::new(fd);
         let mut result = Self::parse_fasta_file(&mut reader)?;
@@ -53,7 +53,7 @@ impl FastaReader {
 
     /// Extract all the necessary information from the Fasta file
     #[allow(clippy::too_many_lines)]
-    fn parse_fasta_file<R: Read>(reader: &mut R) -> Result<Self> {
+    fn parse_fasta_file<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let mut in_seq = false;
         let mut seen_newline = true;
         let mut name_buf = String::with_capacity(64);
@@ -182,6 +182,7 @@ impl FastaReader {
             hard_blocks,
             sequence_starts,
             sequence_lengths,
+            empty_block_vec: vec![],
         })
     }
 }
@@ -225,15 +226,14 @@ impl Nucleotides for FastaNucleotides {
 }
 
 impl<'a> SequenceRead<'a> for FastaReader {
-    fn sequence_lengths(&self) -> Cow<[SequenceLength]> {
-        Cow::Borrowed(&self.sequence_lengths)
+    fn sequence_lengths(&'a self) -> Result<&'a [SequenceLength], Box<dyn std::error::Error>> {
+        Ok(&self.sequence_lengths)
     }
 
-    fn nucleotides(&self, chr: &str) -> Box<dyn Nucleotides> {
+    fn nucleotides(&self, chr: &str) -> Result<Box<dyn Nucleotides>, Box<dyn std::error::Error>> {
         let mut reader: Box<dyn FileAccess> = {
             if let Some(file_path) = &self.file_path {
-                let file = File::open(file_path).unwrap();
-                Box::new(BufReader::new(file))
+                Box::new(BufReader::new(File::open(file_path)?))
             } else if let Some(cursor) = &self.in_memory_data {
                 Box::new(cursor.clone())
             } else {
@@ -242,30 +242,30 @@ impl<'a> SequenceRead<'a> for FastaReader {
         };
         if let Some(seek_to) = self.sequence_starts.get(chr) {
             reader.seek(SeekFrom::Start(*seek_to)).unwrap();
-            Box::new(FastaNucleotides {
+            Ok(Box::new(FastaNucleotides {
                 reader,
                 exhausted: false,
-            })
+            }))
         } else {
             // no location information about the sequence
-            Box::new(FastaNucleotides {
+            Ok(Box::new(FastaNucleotides {
                 reader,
                 exhausted: true,
-            })
+            }))
         }
     }
 
-    fn soft_masked_blocks(&self, chr: &str) -> Cow<[Block]> {
+    fn soft_masked_blocks(&'a self, chr: &str) -> Result<&'a [Block], Box<dyn std::error::Error>> {
         match self.soft_blocks.get(chr) {
-            Some(blocks) => Cow::Borrowed(blocks),
-            None => Cow::Owned(vec![]),
+            Some(blocks) => Ok(blocks),
+            None => Ok(&self.empty_block_vec),
         }
     }
 
-    fn hard_masked_blocks(&self, chr: &str) -> Cow<[Block]> {
+    fn hard_masked_blocks(&'a self, chr: &str) -> Result<&'a [Block], Box<dyn std::error::Error>> {
         match self.hard_blocks.get(chr) {
-            Some(blocks) => Cow::Borrowed(blocks),
-            None => Cow::Owned(vec![]),
+            Some(blocks) => Ok(blocks),
+            None => Ok(&self.empty_block_vec),
         }
     }
 }
@@ -274,7 +274,7 @@ impl<'a> SequenceRead<'a> for FastaReader {
 ///
 /// Remember to call `twobit.enable_softmask()` if you want softmasked
 /// nucleotides in your output.
-pub fn to_fasta<R>(twobit: &mut TwoBitFile<R>, writer: &mut dyn Write) -> Result<()>
+pub fn to_fasta<R>(twobit: &mut TwoBitFile<R>, writer: &mut dyn Write) -> Result<(), Error>
 where
     R: Read + Seek,
 {
@@ -327,7 +327,7 @@ mod tests {
     fn test_sequence_lengths() {
         let data: Vec<u8> = Vec::from(FASTA_FILE_DATA);
         let fasta_file = FastaReader::mem_open(data).expect("unit-test");
-        let lengths = fasta_file.sequence_lengths();
+        let lengths = fasta_file.sequence_lengths().expect("unit-test");
         assert_eq!(lengths.len(), 2);
         assert_eq!(lengths[0].name, "name1");
         assert_eq!(lengths[0].length, 47);
@@ -363,16 +363,22 @@ mod tests {
             }
         }
 
-        match fasta_file.soft_masked_blocks("name1") {
-            Cow::Owned(blocks) => check_soft_blocks(&blocks),
-            Cow::Borrowed(blocks) => check_soft_blocks(blocks),
-        }
-        assert_eq!(fasta_file.soft_masked_blocks("name2").len(), 0);
+        check_soft_blocks(fasta_file.soft_masked_blocks("name1").expect("unit-test"));
+        assert_eq!(
+            fasta_file
+                .soft_masked_blocks("name2")
+                .expect("unit-test")
+                .len(),
+            0
+        );
 
-        match fasta_file.hard_masked_blocks("name1") {
-            Cow::Owned(blocks) => check_hard_blocks(&blocks),
-            Cow::Borrowed(blocks) => check_hard_blocks(blocks),
-        }
-        assert_eq!(fasta_file.hard_masked_blocks("name2").len(), 0);
+        check_hard_blocks(fasta_file.hard_masked_blocks("name1").expect("unit-test"));
+        assert_eq!(
+            fasta_file
+                .hard_masked_blocks("name2")
+                .expect("unit-test")
+                .len(),
+            0
+        );
     }
 }
