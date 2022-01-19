@@ -113,8 +113,8 @@ pub fn to_2bit<'a>(
     let reserved: Field = 0;
 
     // let's start writing immediately to force IO errors early
-    for input in &[&signature, &version, sequence, sequence_count, reserved] {
-        writer_write_all(input.to_ne_bytes())?;
+    for input in &[&signature, &version, &sequence_count, &reserved] {
+        writer.write_all(&input.to_ne_bytes())?;
     }
 
     // A 2bit file has three sections: 1) header 2) index 3) sequence records.
