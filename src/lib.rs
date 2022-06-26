@@ -73,7 +73,7 @@
 //! # }();
 //! ```
 
-#![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![warn(clippy::all, clippy::pedantic, clippy::cargo)]
 #![allow(
     clippy::missing_errors_doc,
     clippy::module_name_repetitions,
