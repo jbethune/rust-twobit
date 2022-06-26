@@ -6,6 +6,7 @@ Release date: June 26, 2022.
 
 ### Added
 
+- Bumped Rust edition to 2021
 - Added the traits `convert::SequenceRead` and `convert::Nucleotides` for
   converting other file formats to the 2bit file format.
 - Added support for converting FASTA files to 2bit files using these traits.
