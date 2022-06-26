@@ -7,7 +7,7 @@ use std::string::FromUtf8Error;
 pub enum Error {
     /// IO problems
     IO(io::Error),
-    /// Something is wrong with the 2bit file
+    /// Something is wrong with the file
     FileFormat(String),
     /// 2bit file version is too advanced
     UnsupportedVersion(String),

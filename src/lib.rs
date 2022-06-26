@@ -73,7 +73,7 @@
 //! # }();
 //! ```
 
-#![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![warn(clippy::all, clippy::pedantic, clippy::cargo)]
 #![allow(
     clippy::missing_errors_doc,
     clippy::module_name_repetitions,
@@ -82,11 +82,14 @@
 )]
 
 mod block;
+pub mod convert;
 mod counts;
 mod error;
+pub mod nucleotide;
 mod quad;
 mod reader;
 
+use std::cmp::min;
 use std::default::Default;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
@@ -284,33 +287,35 @@ impl<R: Read + Seek> TwoBitFile<R> {
     ) -> Result<String> {
         const NUC: &[u8; 4] = b"TCAG";
 
-        let seq = self.sequences.query(chr)?;
+        let seq = self.sequences.query(&chr)?;
         let reader = &mut self.reader;
 
-        let start = match range.start_bound() {
-            Bound::Included(&v) => v,
-            Bound::Excluded(&v) => v + 1,
-            Bound::Unbounded => 0,
+        let start = {
+            let pos = match range.start_bound() {
+                Bound::Included(&v) => v,
+                Bound::Excluded(&v) => v + 1,
+                Bound::Unbounded => 0,
+            };
+            min(pos, seq.length)
         };
-        let end = match range.end_bound() {
-            Bound::Included(&v) => v + 1,
-            Bound::Excluded(&v) => v,
-            Bound::Unbounded => seq.length,
+        let end = {
+            let pos = match range.end_bound() {
+                Bound::Included(&v) => v + 1,
+                Bound::Excluded(&v) => v,
+                Bound::Unbounded => seq.length,
+            };
+            min(pos, seq.length)
         };
 
-        let first_byte = start / 4;
-        reader.seek(SeekFrom::Start(seq.offset))?; // beginning of the DNA sequence
-        reader.seek(SeekFrom::Current(first_byte as _))?; // position where we want to start reading
         if start >= end {
             return Ok(String::new()); // trivial case, empty return result
         }
+        let first_byte = start / 4;
+        reader.seek(SeekFrom::Start(seq.offset))?; // beginning of the DNA sequence
+        reader.seek(SeekFrom::Current(first_byte as _))?; // position where we want to start reading
 
         let length = end - start;
-        let mut out = Vec::with_capacity(length);
-        unsafe {
-            // Safe because the vector contains integers and we allocated capacity above
-            out.set_len(length);
-        }
+        let mut out = vec![0_u8; length];
 
         let last_byte = (end - 1) / 4; // inclusive (!) index, and here we know that end >= 1
         let skip_start = start % 4; // number of pairs to skip in the first byte
@@ -434,14 +439,16 @@ mod tests {
 
     fn run_test(softmask_enabled: bool, func: impl Fn(TwoBitFile<Box<dyn Reader>>) -> Result<()>) {
         let mut files = vec![
-            TwoBitFile::open(TESTFILE).unwrap().boxed(),
-            TwoBitFile::open_and_read(TESTFILE).unwrap().boxed(),
+            TwoBitFile::open(TESTFILE).expect("unit-test").boxed(),
+            TwoBitFile::open_and_read(TESTFILE)
+                .expect("unit-test")
+                .boxed(),
         ];
         for mut tb in files.drain(..) {
             if softmask_enabled {
                 tb = tb.enable_softmask(true);
             }
-            func(tb).unwrap();
+            func(tb).expect("unit-test");
         }
     }
 

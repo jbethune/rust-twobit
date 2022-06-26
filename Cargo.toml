@@ -1,8 +1,8 @@
 [package]
 name = "twobit"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["joern <joern@localhost>", "Ivan Smirnov <rust@ivan.smirnov.ie>"]
-edition = "2018"
+edition = "2021"
 readme = "README.md"
 repository = "https://github.com/jbethune/rust-twobit"
 license = "MIT"
