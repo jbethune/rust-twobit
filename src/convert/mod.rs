@@ -213,7 +213,7 @@ pub fn to_2bit<'a>(
         }
         if nuc_modulo > 0 {
             // if there are still 1-3 bits to be written
-            byte <<= 2 * (4 - nuc_modulo); // shift all the way to the left
+            byte <<= 2 * (3 - nuc_modulo); // shift all the way to the left
             buf[0] = byte;
             writer.write_all(&buf)?;
         }

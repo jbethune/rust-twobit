@@ -71,3 +71,47 @@ fn twobit_fasta_roundtrip() {
         assert_eq!(old, new);
     }
 }
+
+// bug from issue #4
+#[test]
+fn read_seq_roundtrips_with_terminal_partial_byte() {
+    let long_seq = format!(
+        "{}{}{}{}{}{}",
+        "A".repeat(10),
+        "T".repeat(10),
+        "C".repeat(5),
+        "A".repeat(5),
+        "T".repeat(10),
+        "C".repeat(10)
+    );
+
+    let seqs_with_lengths_not_divisible_by_4 = &[
+        "A",
+        "AC",
+        "ACG",
+        // skip
+        "ACGTA",
+        "ACGTG",
+        "ACGTGC",
+        "ACGTGCA",
+        // skip
+        "ACGTGCACG",
+        &long_seq,
+    ];
+    for seq in seqs_with_lengths_not_divisible_by_4 {
+        // sanity check for this test
+        if seq.len().is_multiple_of(4) {
+            panic!("{seq}");
+        }
+        let data = format!(">chr1\n{seq}\n");
+        let fasta: Vec<u8> = data.as_bytes().into();
+        let reader = FastaReader::mem_open(fasta).expect("testing");
+        let mut out = Cursor::new(vec![]);
+        to_2bit(&mut out, &reader).expect("testing");
+        let twobit_file_data: Vec<u8> = out.into_inner();
+
+        let mut twobit = TwoBitFile::from_buf(twobit_file_data).expect("testing");
+        let other_seq = twobit.read_sequence("chr1", ..).expect("test");
+        assert_eq!(seq, &other_seq);
+    }
+}
